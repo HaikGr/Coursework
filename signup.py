@@ -14,12 +14,13 @@ import animatedbackground as ab
 # Sign Up Window
 # ---------------------------
 class SignUpWindow(QMainWindow):
-    def __init__(self, parent_window):
+    def __init__(self, parent_window, geometry):
         super().__init__()
-        self.setFixedSize(1200, 700)
         self.setWindowTitle("Database Management")
         self.setStyleSheet("background-color: #3B82F6;")
         self.parent_window = parent_window
+        self.savedgeomety = geometry
+        self.restoreGeometry(self.savedgeomety)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -291,4 +292,4 @@ class SignUpWindow(QMainWindow):
         """Hides this window and re-shows the parent Sign In window."""
         if self.parent_window:
             self.parent_window.show()
-        self.close()
+        self.hide()

@@ -65,11 +65,13 @@ class DashboardWindow(QMainWindow):
     """
     The main application interface, opened after successful sign-in/connection.
     """
-    def __init__(self, username="User"):
+    def __init__(self, username, parent_window, geometry):
         super().__init__()
         self.setWindowTitle("Database Dashboard - Connected")
-        self.setGeometry(200, 100, 1600, 900)
+        self.restoreGeometry(geometry)
         self.setStyleSheet("background-color: #1C1F26;")
+        self.parent_window = parent_window
+        self.username = username
 
         # Central widget & root layout (vertical: top bar + body)
         main_widget = QWidget()
@@ -81,6 +83,7 @@ class DashboardWindow(QMainWindow):
         # -----------------------------
         # Top Blue Horizontal Bar
         # -----------------------------
+
         top_line = QFrame()
         top_line.setFixedHeight(40)
         top_line.setStyleSheet("""
@@ -96,7 +99,7 @@ class DashboardWindow(QMainWindow):
         top_line_layout.addStretch()
 
         # database info on the right
-        db_info = QLabel("Database: 1")
+        db_info = QLabel(f"Database: 1 {self.username}")
         db_info.setStyleSheet("color: white; font-size: 14px;")
         top_line_layout.addWidget(db_info)
 
@@ -106,24 +109,39 @@ class DashboardWindow(QMainWindow):
         # -----------------------------
         # Body layout: sidebar | center | sql panel
         # -----------------------------
+
+        # Sidebar | center and toolbar layout
+
         body_layout = QHBoxLayout()
-        body_layout.setSpacing(12)
+        body_layout.setSpacing(0)
         root_layout.addLayout(body_layout)
+        root_layout.setSpacing(0)
 
         # -----------------------------
         # Left Sidebar
         # -----------------------------
+
         sidebar_widget = QWidget()
         sidebar_layout = QVBoxLayout()
-        sidebar_layout.setContentsMargins(8, 8, 8, 8)
-        sidebar_layout.setSpacing(10)
+        sidebar_layout.setContentsMargins(0, 0, 0, 10)
+        sidebar_layout.setSpacing(0)
         sidebar_widget.setLayout(sidebar_layout)
         sidebar_widget.setFixedWidth(240)
-        sidebar_widget.setStyleSheet("background-color: transparent;")  # parent background shows
+        sidebar_widget.setStyleSheet("background-color: transparent;") 
 
-        lbl_db = QLabel("Databases")
-        lbl_db.setStyleSheet("font-size: 18px; color: white; font-weight: bold;")
-        sidebar_layout.addWidget(lbl_db)
+        databases_text = QFrame()
+        databases_text.setFixedHeight(40)
+        databases_text.setStyleSheet("""
+            QFrame {
+                background-color: #fbc840;
+            }
+        """)
+        databases_text_layout = QHBoxLayout(databases_text)
+
+        title = QLabel("Databases")
+        title.setStyleSheet("color: #9b5120; font-size: 18px; font-weight: 600;")
+        databases_text_layout.addWidget(title)
+        databases_text_layout.addStretch()
 
         self.db_list = QListWidget()
         self.db_list.setStyleSheet("""
@@ -139,22 +157,54 @@ class DashboardWindow(QMainWindow):
         """)
         self.db_list.addItem("Database 1")
         self.db_list.addItem("Database 2")
-        self.db_list.setFixedWidth(220)
+        self.db_list.setFixedHeight(500)
+        logout_button = QPushButton("LOG OUT")
+        logout_button.setFixedSize(200, 60)
+        logout_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #dd2828;
+                color: white;
+                font-size: 15px;
+                border-radius: 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover { 
+                background-color: #7BA3D0;
+            }
+            """)
+        logout_button.clicked.connect(self.log_out)
+        
+        sidebar_layout.addWidget(databases_text)
         sidebar_layout.addWidget(self.db_list)
-
         sidebar_layout.addStretch()
+        sidebar_layout.addWidget(logout_button, alignment=Qt.AlignmentFlag.AlignCenter)
         body_layout.addWidget(sidebar_widget)
 
+        
+
+        # Toolbar in the center
+        toolbar_line = QFrame()
+        toolbar_line.setFixedHeight(40)
+        toolbar_line.setStyleSheet("""
+            QFrame {
+                background-color: #eeeff1;
+            }
+        """)
+
+        # Add top line to root layout
         # -----------------------------
         # Center Area (Canvas)
         # -----------------------------
+        
         center_container = QFrame()
-        center_container.setStyleSheet("background-color: #f5f6f7; border-radius: 8px;")
+        center_container.setStyleSheet("background-color: #f5f6f7;")
         center_container.setMinimumWidth(900)
 
         canvas_layout = QVBoxLayout()
-        canvas_layout.setContentsMargins(10, 10, 10, 10)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.setSpacing(6)
+        canvas_layout.addWidget(toolbar_line)
         center_container.setLayout(canvas_layout)
 
         # Draggable table cards area (a widget inside a scroll area)
@@ -185,17 +235,18 @@ class DashboardWindow(QMainWindow):
         canvas_scroll.setStyleSheet("border: none;")
         canvas_layout.addWidget(canvas_scroll)
 
-        body_layout.addWidget(center_container, stretch=1)
+        body_layout.addWidget(center_container, stretch=3)
 
         # -----------------------------
         # Right SQL Builder Panel
         # -----------------------------
+
         sql_widget = QWidget()
         sql_layout = QVBoxLayout()
-        sql_layout.setContentsMargins(8, 8, 8, 8)
+        sql_layout.setContentsMargins(10, 10, 10, 10)
         sql_layout.setSpacing(8)
         sql_widget.setLayout(sql_layout)
-        sql_widget.setFixedWidth(380)
+        sql_widget.setFixedWidth(300)
 
         lbl_sql = QLabel("SQL Query Builder")
         lbl_sql.setStyleSheet("font-size: 18px; color: white; font-weight: bold;")
@@ -204,18 +255,26 @@ class DashboardWindow(QMainWindow):
         self.sql_editor = QTextEdit()
         self.sql_editor.setStyleSheet("""
             QTextEdit {
-                background-color: #162032;
+                background-color: #11192c;
                 color: white;
                 font-size: 14px;
                 border-radius: 8px;
             }
         """)
         self.sql_editor.setPlaceholderText("Click on table fields to build your query...")
-        self.sql_editor.setFixedWidth(360)
+        self.sql_editor.setFixedWidth(280)
         sql_layout.addWidget(self.sql_editor)
 
         sql_layout.addStretch()
-        body_layout.addWidget(sql_widget)
+        body_layout.addWidget(sql_widget, stretch=1)
+
+    def log_out(self):
+        """Log Outs and go back to main menu"""
+        if self.parent_window:
+            self.parent_window.show()
+        self.close()
+
+
 
 
 

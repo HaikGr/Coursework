@@ -24,6 +24,7 @@ class SignInWindow(QMainWindow):
         # self.setFixedSize(1200, 700)
         self.setWindowTitle("Database Management")
         self.setStyleSheet("background-color: #3B82F6;")
+        self.setMinimumSize(1200, 700)
 
         # Animated background as central widget
         self.animated_bg = ab.AnimatedBackground(self)
@@ -217,7 +218,7 @@ class SignInWindow(QMainWindow):
             self.toggle_btn.setIcon(ab.svg_icon(ab.EYE_CLOSED))
 
     def switch_to_signup(self, checked=False):
-        self.signup_window = SignUpWindow(self)
+        self.signup_window = SignUpWindow(self, self.saveGeometry())
         self.signup_window.show()
         self.hide()
 
@@ -231,7 +232,7 @@ class SignInWindow(QMainWindow):
             msg.setText("Please enter both username/email and password.")
             msg.exec()
             return
-        self.dashboard_window = DashboardWindow(username)
+        self.dashboard_window = DashboardWindow(username, self, self.saveGeometry())
         self.dashboard_window.show()
-        self.close()
+        self.hide()
     
