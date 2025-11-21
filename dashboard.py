@@ -96,7 +96,7 @@ class DashboardWindow(QMainWindow):
         top_line_layout.addStretch()
 
         # database info on the right
-        db_info = QLabel("Database: demo_db (2)")
+        db_info = QLabel("Database: 1")
         db_info.setStyleSheet("color: white; font-size: 14px;")
         top_line_layout.addWidget(db_info)
 
