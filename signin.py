@@ -12,7 +12,6 @@ from signup import SignUpWindow
 from dashboard import DashboardWindow
 # Utilities
 import animatedbackground as ab
-import base64
 
 
 # ---------------------------
@@ -22,7 +21,7 @@ import base64
 class SignInWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setFixedSize(1200, 700)
+        # self.setFixedSize(1200, 700)
         self.setWindowTitle("Database Management")
         self.setStyleSheet("background-color: #3B82F6;")
 
