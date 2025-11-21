@@ -58,7 +58,6 @@ class TableCard(QFrame):
     def mouseReleaseEvent(self, event):
         self.drag_pos = None
 
-
 # ---------------------------
 # Dashboard Window
 # ---------------------------
@@ -75,8 +74,7 @@ class DashboardWindow(QMainWindow):
         # Central widget & root layout (vertical: top bar + body)
         main_widget = QWidget()
         root_layout = QVBoxLayout()
-        root_layout.setContentsMargins(12, 12, 12, 12)
-        root_layout.setSpacing(12)
+        root_layout.setContentsMargins(0, 0, 0, 0)
         main_widget.setLayout(root_layout)
         self.setCentralWidget(main_widget)
 
@@ -84,26 +82,17 @@ class DashboardWindow(QMainWindow):
         # Top Blue Horizontal Bar
         # -----------------------------
         top_line = QFrame()
-        top_line.setFixedHeight(56)
+        top_line.setFixedHeight(40)
         top_line.setStyleSheet("""
             QFrame {
                 background-color: #3777f0;
-                border-radius: 8px;
             }
         """)
         top_line_layout = QHBoxLayout(top_line)
-        top_line_layout.setContentsMargins(16, 6, 16, 6)
-        # top_line_layout.setSpacing(10)
 
         title = QLabel("Database Management System")
         title.setStyleSheet("color: white; font-size: 18px; font-weight: 600;")
         top_line_layout.addWidget(title)
-
-        # optional small subtitle
-        subtitle = QLabel("— SQL Designer")
-        subtitle.setStyleSheet("color: rgba(255,255,255,0.9); font-size: 13px; margin-left:6px;")
-        top_line_layout.addWidget(subtitle)
-
         top_line_layout.addStretch()
 
         # database info on the right
@@ -227,12 +216,6 @@ class DashboardWindow(QMainWindow):
 
         sql_layout.addStretch()
         body_layout.addWidget(sql_widget)
-
-        # store widgets if needed
-        self.top_line = top_line
-        self.center_container = center_container
-        self.sidebar_widget = sidebar_widget
-        self.sql_widget = sql_widget
 
 
 
