@@ -156,52 +156,49 @@ class DashboardWindow(QMainWindow):
         # Main Databases Tree Widget
         self.db_tree = QTreeWidget()
         self.db_tree.setHeaderHidden(True)
-        # REMOVED: self.db_tree.setFixedHeight(500) -> allows it to stretch and fill space
+        self.db_tree.setFixedHeight(500)
         
         # New QSS to match the light theme and clean look from the image
         self.db_tree.setStyleSheet("""
-            QTreeWidget {
-                background-color: #FFFFFF;
-                color: #333333;
-                border: none;
-                padding-top: 5px;
-                padding-bottom: 5px;
-                outline: none;
-            }
+        /* Remove default arrow */
+        QTreeView::branch {
+            background: transparent;
+        }
 
-            QTreeWidget::item {
-                height: 32px;
-                padding-left: 10px;
-                padding-top: 2px;
-                padding-bottom: 2px;
-            }
+        QTreeWidget {
+            background-color: #FFFFFF;
+            color: #333333;
+            border: none;
+            padding-top: 5px;
+            padding-bottom: 5px;
+            outline: none;
+        }
 
-            QTreeWidget::item:hover {
-                background-color: #F0F4F8; /* Subtle light hover */
-            }
+        QTreeWidget::item {
+            height: 40px;
+            border-radius: 13px;
+            padding-left: 30px;
+            padding-top: 2px;
+            padding-bottom: 2px;
+        }
 
-            QTreeWidget::item:selected {
-                background-color: #E2ECFF; /* Light blue selection */
-                color: #1C1F26;
-                border-left: 3px solid #3777f0; /* Blue vertical bar on selection */
-            }
+        QTreeWidget::item:hover {
+            background-color: #F0F4F8;
+        }
 
-            /* Styling for the Add Table link */
-            QTreeWidget::item:hover:!selected[text(0)="+ Add Table"],
-            QTreeWidget::item:!selected[text(0)="+ Add Table"] {
-                color: #3777f0; /* Blue link color */
-                font-style: italic;
-                font-size: 13px;
-                padding-left: 18px; /* Extra indent for table children */
-            }
+        /* Parent item selected */
+        QTreeWidget::item:selected {
+            background-color: #2a6bee;
+            color: white;
+        }
 
-            /* Remove default triangles to match the clean visual style */
-            QTreeWidget::branch:closed:has-children,
-            QTreeWidget::branch:open:has-children {
-                image: none;
-                border-image: none;
-            }
-        """)
+        /* Child item selected – override the above */
+        QTreeWidget::item[role="table"]:selected {
+            background-color: #2a6bee;   /* same background */
+            color: #fbc538;              /* your golden color */
+            font-size: 14px;
+        }
+    """)
             
         # Data population function
         def add_database(name, tables):
@@ -316,7 +313,9 @@ class DashboardWindow(QMainWindow):
         toolbar_layout.addWidget(QPushButton("Open"))
         toolbar_layout.addWidget(QPushButton("Save"))
         toolbar_layout.addStretch()
-        toolbar_layout.addWidget(QPushButton("RUN QUERY"))
+        run_query = QPushButton("Run Query")
+        run_query.setStyleSheet("""QPushButton { background-color: #17a54b; }""")
+        toolbar_layout.addWidget(run_query)
         
         canvas_layout.addWidget(toolbar_line)
         
@@ -400,6 +399,7 @@ class DashboardWindow(QMainWindow):
         sql_layout.addWidget(editor_area)
         
         body_layout.addWidget(sql_widget, stretch=1)
+        print(geometry, username, parent_window)
 
     def log_out(self):
         """Log Outs and go back to main menu"""
