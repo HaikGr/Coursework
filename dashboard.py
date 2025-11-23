@@ -4,10 +4,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTextEdit, QScrollArea,
     QFrame, QTreeWidget, QTreeWidgetItem,
-    QStackedWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QSizePolicy
+    QStackedWidget, QTableWidget, QTableWidgetItem, QLineEdit,
+    QHeaderView, QSizePolicy, QMessageBox, QDialog, QDialogButtonBox, QComboBox
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt
 import sys
 
 # ---------------------------
@@ -213,20 +213,93 @@ class Toolbar(QFrame):
 # ---------------------------
 # Table Details Page
 # ---------------------------
+class InputFieldsWindow(QDialog):
+    """
+    Compact dialog: Field name + dropdowns for Type and IsNull.
+    """
+    def __init__(self, types_list=None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Data Input Dialog")
+        self.setFixedSize(300,160)
+        self.return_data = None
+        
+        if types_list is None:
+            types_list = ["Int", "Money", "String"]
+        
+        # Field Name
+        self.name_label = QLabel("Field_Name")
+        self.input_field = QLineEdit()
+        
+        # Type dropdown
+        self.type_label = QLabel("Type:")
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(types_list)
+        
+        # IsNull dropdown
+        self.null_label = QLabel("IsNull:")
+        self.null_combo = QComboBox()
+        self.null_combo.addItems(["Null", "Not Null"])
+        
+        # Buttons
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        
+        # Layout
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.name_label)
+        layout.addWidget(self.input_field)
+        
+        hlayout1 = QHBoxLayout()
+        hlayout1.addWidget(self.type_label)
+        hlayout1.addWidget(self.type_combo)
+        layout.addLayout(hlayout1)
+        
+        hlayout2 = QHBoxLayout()
+        hlayout2.addWidget(self.null_label)
+        hlayout2.addWidget(self.null_combo)
+        layout.addLayout(hlayout2)
+        
+        layout.addWidget(self.buttons)
+    
+    def accept(self):
+        field_name = self.input_field.text().strip()
+        type_value = self.type_combo.currentText()
+        isnull_value = self.null_combo.currentText()
+        
+        if not field_name:
+            return  # optionally warn the user
+        
+        self.return_data = [field_name, type_value, isnull_value]
+        super().accept()
+    
+    def get_data(self):
+        return self.return_data
+
 class TableDetailsPage(QWidget):
     """A page that shows schema and records for a selected table."""
-    def __init__(self, table_name, columns, rows):
+    def __init__(self, table_name, columns, rows, stacked):
         super().__init__()
         self.table_name = table_name
         self.columns = columns
         self.rows = rows
+        self.stacked = stacked
+        self.input_window = None
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
         toolbar = Toolbar()
         layout.addWidget(toolbar)
+
+        go_back = QPushButton("<- Back")
+        go_back.clicked.connect(self.go_back)
+        layout.addWidget(go_back)
 
         header = QLabel(f"Table: {table_name}")
         header.setStyleSheet("font-size: 18px; font-weight: 600;")
@@ -237,25 +310,184 @@ class TableDetailsPage(QWidget):
         sf_layout = QVBoxLayout(schema_frame)
         sf_layout.setContentsMargins(8, 8, 8, 8)
         sf_layout.addWidget(QLabel("Schema:"))
-        for c in columns:
-            lbl = QLabel(f"• {c}")
-            lbl.setStyleSheet("color: #333333;")
-            sf_layout.addWidget(lbl)
-        layout.addWidget(schema_frame)
+        self.scheme = QTableWidget()
+        self.scheme.setRowCount(len(columns))
+        scheme_columns = ["FieldName", "Type", "IsNull"]
+        self.scheme.setColumnCount(len(scheme_columns))
+        self.scheme.setHorizontalHeaderLabels(scheme_columns)
+        self.scheme.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.scheme.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        for r_idx, r in enumerate(columns):
+            for c_idx, value in enumerate(r):
+                self.scheme.setItem(r_idx, c_idx, QTableWidgetItem(str(value)))
+
+        layout.addWidget(self.scheme)
+
+        self.add_fields = QPushButton("Add Field")
+        self.add_fields.clicked.connect(self.add_field)
+        layout.addWidget(self.add_fields)
 
         # Records table
-        table = QTableWidget()
-        table.setColumnCount(len(columns))
-        table.setRowCount(len(rows))
-        table.setHorizontalHeaderLabels(columns)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.table = QTableWidget()
+        self.table.setColumnCount(len(columns))
+        self.table.setRowCount(len(rows))
+        self.table.setHorizontalHeaderLabels([x[0] for x in columns]) 
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         for r_idx, r in enumerate(rows):
             for c_idx, value in enumerate(r):
-                table.setItem(r_idx, c_idx, QTableWidgetItem(str(value)))
+                self.table.setItem(r_idx, c_idx, QTableWidgetItem(str(value)))
 
-        layout.addWidget(table)
+        self.table.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.table.setFocus()
+        layout.addWidget(self.table)
+
+        add_rows = QPushButton("Add Row")
+        add_rows.clicked.connect(self.add_rows)
+        layout.addWidget(add_rows)
+        
+    def add_rows(self):
+        new_row = ["Unknown" for i in range(len(self.columns))]
+        self.rows.append(new_row)
+        new_row_index = len(self.rows) - 1
+        self.table.setRowCount(len(self.rows))
+        for col, value in enumerate(new_row):
+            self.table.setItem(new_row_index, col, QTableWidgetItem(str(value)))
+
+    def add_field(self):
+        # Open dialog
+        field_info = InputFieldsWindow()
+        result = field_info.exec()
+
+        if result == QDialog.DialogCode.Accepted:
+            # Retrieve returned data
+            new_data = field_info.get_data()  # [field_name, type, isnull]
+            if not new_data:
+                return  # safety check
+
+            field_name, type_value, isnull_value = new_data
+
+            # --- Add column to table using field_name ---
+            current_columns = self.table.columnCount()
+            self.table.insertColumn(current_columns)  # add as new column at the end
+            self.table.setHorizontalHeaderItem(current_columns, QTableWidgetItem(field_name))
+
+            # --- Add row to scheme exactly like returned value ---
+            current_rows = self.scheme.rowCount()
+            self.scheme.insertRow(current_rows)
+            for col_index, value in enumerate(new_data):
+                self.scheme.setItem(current_rows, col_index, QTableWidgetItem(value))
+
+            # Optional: keep track in internal list
+            self.columns.append(new_data)
+
+    def delete_selected_rows(self):
+        selected_rows = set()
+        for item in self.table.selectedItems():
+            selected_rows.add(item.row())
+        if not selected_rows:
+            return  # nothing selected
+        # Remove rows from bottom to top
+        for row in sorted(selected_rows, reverse=True):
+            self.table.removeRow(row)
+            del self.rows[row]
+    def delete_selected_field(self):
+            # Get selected items from the schema table
+            selected_items = self.scheme.selectedItems()
+            if not selected_items:
+                QMessageBox.warning(self, "No Selection", "Please select a field to delete.")
+                return
+
+            # Assume selection mode allows only single row selection for deleting a field
+            selected_row = selected_items[0].row()
+            field_name = self.scheme.item(selected_row, 0).text()
+
+            # Confirm deletion
+            reply = QMessageBox.question(
+                self,
+                "Delete Field",
+                f"Are you sure you want to delete the field '{field_name}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            # --- Remove column from main table ---
+            column_index = selected_row  # schema row index corresponds to table column
+            self.table.removeColumn(column_index)
+
+            # --- Remove row from schema ---
+            self.scheme.removeRow(selected_row)
+
+            # --- Remove from internal list ---
+            del self.columns[selected_row]
+
+            # Optional: also remove data from all rows to keep consistency
+            for row_data in self.rows:
+                if column_index < len(row_data):
+                    del row_data[column_index]
+    
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete:
+            # --- Handle row deletion from main table ---
+            selected_rows = set()
+            for item in self.table.selectedItems():
+                selected_rows.add(item.row())
+
+            if selected_rows:
+                reply = QMessageBox.question(
+                    self,
+                    "Delete Row(s)",
+                    "Do you want to delete the selected row(s)?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    # Remove rows from bottom to top
+                    for row in sorted(selected_rows, reverse=True):
+                        self.table.removeRow(row)
+                        del self.rows[row]
+                return  # stop here if rows were deleted
+
+            # --- Handle field/column deletion from schema ---
+            selected_columns = set()
+            for item in self.scheme.selectedItems():
+                selected_columns.add(item.row())  # each row in schema corresponds to a column in main table
+
+            if selected_columns:
+                reply = QMessageBox.question(
+                    self,
+                    "Delete Field(s)",
+                    "Do you want to delete the selected field(s)?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    # Delete columns starting from the highest index (to avoid shifting)
+                    for col_index in sorted(selected_columns, reverse=True):
+                        # Remove column from main table
+                        self.table.removeColumn(col_index)
+
+                        # Remove row from schema
+                        self.scheme.removeRow(col_index)
+
+                        # Remove from internal columns list
+                        if col_index < len(self.columns):
+                            del self.columns[col_index]
+
+                        # Remove data from all rows
+                        for row_data in self.rows:
+                            if col_index < len(row_data):
+                                del row_data[col_index]
+
+        else:
+            # default behavior for other keys
+            super().keyPressEvent(event)
+
+    def go_back(self):
+        self.stacked.setCurrentIndex(0)
+
 
 # ---------------------------
 # Diagram Page (draggable cards)
@@ -275,6 +507,7 @@ class DiagramPage(QWidget):
         self.table_area = QWidget()
         self.table_area.setMinimumSize(1400, 900)
         self.table_area.setStyleSheet("background-color: #f5f6f7;")
+        
         # Add example cards
         card1 = TableCard("Users", ["user_id (PK)", "username", "email", "created_at"])
         card1.move(120, 80)
@@ -330,7 +563,7 @@ class DashboardWindow(QMainWindow):
         root_layout.setSpacing(0)
 
         # -----------------------------
-        # Left Sidebar (UI only)
+        # Left Sidebar
         # -----------------------------
         self.sidebar_widget = SideBar()
         body_layout.addWidget(self.sidebar_widget)
@@ -368,7 +601,7 @@ class DashboardWindow(QMainWindow):
     # create_table_page belongs to DashboardWindow (so it can access stacked widget)
     def create_table_page(self, table_name, columns, rows):
         """Create a TableDetailsPage for a table and register it in the stacked widget."""
-        page = TableDetailsPage(table_name, columns, rows)
+        page = TableDetailsPage(table_name, columns, rows, self.stacked_center)
         idx = self.stacked_center.addWidget(page)
         self.page_map[table_name] = (page, idx)
         return idx
@@ -402,12 +635,14 @@ class DashboardWindow(QMainWindow):
             # show or create table page
             if table_name not in self.page_map:
                 # Create a new page with some placeholder schema & rows.
-                columns = ["Id", "Field_1", "Field_2"]
+                columns = [["Id", "Int", "Null"],
+                           ["Field_1", "String", "NotNull"],
+                           ["Field_2", "Money", "Null"]]
+
                 rows = [
                     [1, "Gasparyan", "$200000"],
-                    [2, "Tagavor", "$300000"],
-                    [3, "Bryan", "$250000"],
-                    [4, "Unknown", "$0"]
+                    [2, "Hovsepyan", "$300000"],
+                    [3, "Sahakyan", "$250000"],
                 ]
                 self.create_table_page(table_name, columns, rows)
             page_index = self.page_map[table_name][1]
