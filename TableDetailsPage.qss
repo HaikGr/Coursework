@@ -1,0 +1,55 @@
+QWidget#TableDetailsPage {
+    background-color: #55657c; /* Dark gray background */
+    color: #F0F0F0; /* Light text color */
+    border-radius: 8px; /* Apply border-radius to the main widget for the overall panel effect */
+}
+
+/* ... (previous QPushButton and QLabel styles) ... */
+
+/* --- QTableWidget (Schema and Data Records) Styling --- */
+QTableWidget {
+    background-color: #55657c; /* Background for the main table area */
+    border: 10px solid #586980;
+    color: #F0F0F0;
+    border-radius: 15px; /* <--- ADD THIS for rounded table corners */
+    /* overflow: hidden; */ /* Ensures child elements (like headers) also respect the rounded border */
+}
+
+/* To ensure the header corners align with the table's rounded corners, */
+/* we often need to style the header itself and potentially clip its contents. */
+QHeaderView::section {
+    background-color: #445268; /* Darker background for headers */
+    color: #FFFFFF;
+    padding: 6px;
+    border: none;
+    border-right: 1px solid #555555;
+    border-bottom: 1px solid #555555;
+    font-weight: bold;
+}
+
+/* Style for the top-left and top-right header sections to round their corners */
+QTableWidget QHeaderView::section:horizontal:first {
+    border-top-left-radius: 8px; /* Match the table's border-radius */
+    color: #586980;
+}
+
+QTableWidget QHeaderView::section:horizontal:last {
+    /* If there's a corner button, it might need specific styling too */
+    border-top-right-radius: 8px; /* Match the table's border-radius */
+}
+
+/* Ensure the bottom-most sections are also rounded if the table is smaller than its content */
+QTableWidget::item {
+    padding: 5px;
+    background-color: #4A4A4A; /* Slightly lighter background for rows */
+    border-bottom: 1px solid #555555;
+}
+/* If you want the bottom row items to be rounded */
+/* QTableWidget::item:last-child {
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+} */
+/* This is more complex and often best handled by ensuring the overall table has a border-radius and potentially background. */
+
+
+/* ... (rest of the QSS from before) ... */

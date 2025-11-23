@@ -290,6 +290,10 @@ class TableDetailsPage(QWidget):
         self.input_window = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
+        with open('TableDetailsPage.qss', 'r') as f:
+            _style = f.read()
+            self.setStyleSheet(_style)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
