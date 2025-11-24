@@ -8,10 +8,14 @@ from PyQt6.QtCore import (
     Qt
 )
 
+from items.TableDetailsPage import TableDetailsPage
+
 
 class SideBar(QWidget):
-    def __init__(self):
+    def __init__(self, stack_widget):
         super().__init__()
+        self.stacked_center = stack_widget
+        self.page_map = {}
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
@@ -39,6 +43,7 @@ class SideBar(QWidget):
             QTreeWidget::item:hover { background-color: #F0F4F8; }
             QTreeWidget::item:selected { background-color: #2a6bee; color: white; }
         """)
+        self.db_tree.itemClicked.connect(self.on_tree_click)
 
         def add_database(name, tables):
             db_item = QTreeWidgetItem([name])
@@ -73,3 +78,45 @@ class SideBar(QWidget):
         sidebar_layout.addStretch(1)
         sidebar_layout.addWidget(new_db_button)
         sidebar_layout.addWidget(logout_button)
+
+    def create_table_page(self, table_name, columns, rows):
+        page = TableDetailsPage(table_name, columns, rows, self.stacked_center)
+        idx = self.stacked_center.addWidget(page)
+        self.page_map[table_name] = (page, idx)
+        return idx
+
+    def on_tree_click(self, item, col):
+        role = item.data(0, Qt.ItemDataRole.UserRole)
+        if role == "add_table":
+            parent = item.parent()
+            if parent:
+                base = "NewTable"
+                idx = 1
+                new_name = f"{base}{idx}"
+                existing = {parent.child(i).text(0) for i in range(parent.childCount())}
+                while new_name in existing:
+                    idx += 1
+                    new_name = f"{base}{idx}"
+                new_table_item = QTreeWidgetItem([new_name])
+                new_table_item.setData(0, Qt.ItemDataRole.UserRole, "table")
+                parent.insertChild(parent.childCount() - 1, new_table_item)
+                self.create_table_page(new_name, ["id (int)"], [[1]])
+                page_index = self.page_map[new_name][1]
+                self.stacked_center.setCurrentIndex(page_index)
+                print(f"Created new table in {parent.text(0)}: {new_name}")
+        elif role == "table":
+            table_name = item.text(0)
+            if table_name not in self.page_map:
+                
+                columns = [["Id", "Int", "Null"],
+                           ["Field_1", "String", "NotNull"],
+                           ["Field_2", "Money", "Null"]]
+                rows = [
+                    [1, "Gasparyan", "$200000"],
+                    [2, "Hovsepyan", "$300000"],
+                    [3, "Sahakyan", "$250000"],
+                ]
+                self.create_table_page(table_name, columns, rows)
+            page_index = self.page_map[table_name][1]
+            self.stacked_center.setCurrentIndex(page_index)
+            print(f"Table clicked: {table_name}")
