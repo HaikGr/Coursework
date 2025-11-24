@@ -1,0 +1,75 @@
+from PyQt6.QtWidgets import (
+    QWidget,
+    QVBoxLayout, QHBoxLayout, QLabel,
+    QPushButton,
+    QFrame, QTreeWidget, QTreeWidgetItem,
+)
+from PyQt6.QtCore import (
+    Qt
+)
+
+
+class SideBar(QWidget):
+    def __init__(self):
+        super().__init__()
+        sidebar_layout = QVBoxLayout()
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+        self.setLayout(sidebar_layout)
+        self.setFixedWidth(240)
+        self.setStyleSheet("background-color: #FFFFFF;")
+
+        databases_text = QFrame()
+        databases_text.setFixedHeight(40)
+        databases_text.setStyleSheet("background-color: #fbc840; border-bottom: 1px solid #E0E0E0;")
+        dt_layout = QHBoxLayout(databases_text)
+        dt_layout.setContentsMargins(15, 0, 0, 0)
+        lbl_db = QLabel("Databases")
+        lbl_db.setStyleSheet("color: #9b5120; font-size: 18px; font-weight: 600;")
+        dt_layout.addWidget(lbl_db)
+        dt_layout.addStretch()
+
+        self.db_tree = QTreeWidget()
+        self.db_tree.setHeaderHidden(True)
+        self.db_tree.setFixedHeight(500)
+        self.db_tree.setStyleSheet("""
+            QTreeView::branch { background: transparent; }
+            QTreeWidget { background-color: #FFFFFF; color: #333333; border: none; padding-top: 5px; padding-bottom: 5px; outline: none; }
+            QTreeWidget::item { height: 40px; border-radius: 13px; padding-left: 30px; padding-top: 2px; padding-bottom: 2px; }
+            QTreeWidget::item:hover { background-color: #F0F4F8; }
+            QTreeWidget::item:selected { background-color: #2a6bee; color: white; }
+        """)
+
+        def add_database(name, tables):
+            db_item = QTreeWidgetItem([name])
+            db_item.setExpanded(True)
+            db_item.setData(0, Qt.ItemDataRole.UserRole, "database")
+            self.db_tree.addTopLevelItem(db_item)
+            for t in tables:
+                table_item = QTreeWidgetItem([t])
+                table_item.setData(0, Qt.ItemDataRole.UserRole, "table")
+                db_item.addChild(table_item)
+            add_item = QTreeWidgetItem(["+ Add Table"])
+            add_item.setData(0, Qt.ItemDataRole.UserRole, "add_table")
+            db_item.addChild(add_item)
+
+        add_database("Database 1", ["Table1", "Table2", "Table3"])
+        add_database("Database 2", ["Table A", "Table B"])
+
+        new_db_button = QPushButton("+ New Database")
+        new_db_button.setStyleSheet("""
+            QPushButton { background-color: #F0F4F8; color: #4A5668; font-size: 14px; font-weight: 500; border-radius: 6px; padding: 8px; margin: 10px; border: 1px dashed #C6C6C6; }
+            QPushButton:hover { background-color: #E2ECFF; border: 1px dashed #3777f0; }
+        """)
+
+        logout_button = QPushButton("LOG OUT")
+        logout_button.setStyleSheet("""
+            QPushButton { background-color: #E34A4A; color: white; font-size: 16px; font-weight: bold; border-radius: 8px; padding: 10px; margin: 0px 10px 10px 10px; min-height: 40px; }
+            QPushButton:hover { background-color: #D33A3A; }
+        """)
+
+        sidebar_layout.addWidget(databases_text)
+        sidebar_layout.addWidget(self.db_tree)
+        sidebar_layout.addStretch(1)
+        sidebar_layout.addWidget(new_db_button)
+        sidebar_layout.addWidget(logout_button)
