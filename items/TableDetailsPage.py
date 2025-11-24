@@ -7,13 +7,15 @@ from PyQt6.QtWidgets import (
     QHeaderView, QSizePolicy, QMessageBox, QDialog
 )
 from PyQt6.QtCore import (
-    Qt
+    Qt, pyqtSignal
 )
 
 from items.ToolBar import Toolbar
 from items.InputFieldsWindow import InputFieldsWindow
 
 class TableDetailsPage(QWidget):
+    table_data_ready = pyqtSignal(str, list)
+
     def __init__(self, table_name, stacked):
         super().__init__()
         self.table_name = table_name
@@ -21,6 +23,7 @@ class TableDetailsPage(QWidget):
         self.rows = []
         self.stacked = stacked
         self.input_window = None
+
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet("background-color: #5a6b82;")
         layout = QVBoxLayout(self)
@@ -87,6 +90,7 @@ class TableDetailsPage(QWidget):
             for col_index, value in enumerate(new_data):
                 self.scheme.setItem(current_rows, col_index, QTableWidgetItem(value))
             self.columns.append(new_data)
+            self.table_data_ready.emit(self.table_name, [x[0] for x in self.columns])
 
     def delete_selected_rows(self):
         selected_rows = set()

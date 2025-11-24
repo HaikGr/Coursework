@@ -81,6 +81,9 @@ class SideBar(QWidget):
 
     def create_table_page(self, table_name):
         page = TableDetailsPage(table_name, self.stacked_center)
+        diagram_page = self.stacked_center.widget(0)
+        
+        page.table_data_ready.connect(diagram_page.add_table_card)
         idx = self.stacked_center.addWidget(page)
         self.page_map[table_name] = (page, idx)
         return idx
