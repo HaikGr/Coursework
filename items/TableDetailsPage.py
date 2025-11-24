@@ -14,15 +14,14 @@ from items.ToolBar import Toolbar
 from items.InputFieldsWindow import InputFieldsWindow
 
 class TableDetailsPage(QWidget):
-    def __init__(self, table_name, columns, rows, stacked):
+    def __init__(self, table_name, stacked):
         super().__init__()
         self.table_name = table_name
-        self.columns = columns
-        self.rows = rows
+        self.columns = []
+        self.rows = []
         self.stacked = stacked
         self.input_window = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        # minimal styling fallback (you had qss file originally)
         self.setStyleSheet("background-color: #5a6b82;")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -40,29 +39,23 @@ class TableDetailsPage(QWidget):
         sf_layout.setContentsMargins(8, 8, 8, 8)
         sf_layout.addWidget(QLabel("Schema:"))
         self.scheme = QTableWidget()
-        self.scheme.setRowCount(len(columns))
+        self.scheme.setRowCount(len(self.columns))
         scheme_columns = ["FieldName", "Type", "IsNull"]
         self.scheme.setColumnCount(len(scheme_columns))
         self.scheme.setHorizontalHeaderLabels(scheme_columns)
         self.scheme.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.scheme.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        for r_idx, r in enumerate(columns):
-            for c_idx, value in enumerate(r):
-                self.scheme.setItem(r_idx, c_idx, QTableWidgetItem(str(value)))
         layout.addWidget(self.scheme)
         self.add_fields = QPushButton("Add Field")
         self.add_fields.clicked.connect(self.add_field)
         layout.addWidget(self.add_fields)
         self.table = QTableWidget()
         self.table.setStyleSheet("border-radius: 10px;")
-        self.table.setColumnCount(len(columns))
-        self.table.setRowCount(len(rows))
-        self.table.setHorizontalHeaderLabels([x[0] for x in columns])
+        self.table.setColumnCount(len(self.columns))
+        self.table.setRowCount(len(self.rows))
+        self.table.setHorizontalHeaderLabels([x[0] for x in self.columns])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        for r_idx, r in enumerate(rows):
-            for c_idx, value in enumerate(r):
-                self.table.setItem(r_idx, c_idx, QTableWidgetItem(str(value)))
         self.table.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.table.setFocus()
         layout.addWidget(self.table)

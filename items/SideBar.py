@@ -79,13 +79,13 @@ class SideBar(QWidget):
         sidebar_layout.addWidget(new_db_button)
         sidebar_layout.addWidget(logout_button)
 
-    def create_table_page(self, table_name, columns, rows):
-        page = TableDetailsPage(table_name, columns, rows, self.stacked_center)
+    def create_table_page(self, table_name):
+        page = TableDetailsPage(table_name, self.stacked_center)
         idx = self.stacked_center.addWidget(page)
         self.page_map[table_name] = (page, idx)
         return idx
 
-    def on_tree_click(self, item, col):
+    def on_tree_click(self, item):
         role = item.data(0, Qt.ItemDataRole.UserRole)
         if role == "add_table":
             parent = item.parent()
@@ -100,23 +100,13 @@ class SideBar(QWidget):
                 new_table_item = QTreeWidgetItem([new_name])
                 new_table_item.setData(0, Qt.ItemDataRole.UserRole, "table")
                 parent.insertChild(parent.childCount() - 1, new_table_item)
-                self.create_table_page(new_name, ["id (int)"], [[1]])
+                self.create_table_page(new_name)
                 page_index = self.page_map[new_name][1]
                 self.stacked_center.setCurrentIndex(page_index)
                 print(f"Created new table in {parent.text(0)}: {new_name}")
         elif role == "table":
             table_name = item.text(0)
             if table_name not in self.page_map:
-                
-                columns = [["Id", "Int", "Null"],
-                           ["Field_1", "String", "NotNull"],
-                           ["Field_2", "Money", "Null"]]
-                rows = [
-                    [1, "Gasparyan", "$200000"],
-                    [2, "Hovsepyan", "$300000"],
-                    [3, "Sahakyan", "$250000"],
-                ]
-                self.create_table_page(table_name, columns, rows)
+                self.create_table_page(table_name)
             page_index = self.page_map[table_name][1]
             self.stacked_center.setCurrentIndex(page_index)
-            print(f"Table clicked: {table_name}")
