@@ -45,27 +45,23 @@ class SideBar(QWidget):
         """)
         self.db_tree.itemClicked.connect(self.on_tree_click)
 
-        def add_database(name, tables):
+        def add_database(name):
             db_item = QTreeWidgetItem([name])
             db_item.setExpanded(True)
             db_item.setData(0, Qt.ItemDataRole.UserRole, "database")
             self.db_tree.addTopLevelItem(db_item)
-            for t in tables:
-                table_item = QTreeWidgetItem([t])
-                table_item.setData(0, Qt.ItemDataRole.UserRole, "table")
-                db_item.addChild(table_item)
             add_item = QTreeWidgetItem(["+ Add Table"])
             add_item.setData(0, Qt.ItemDataRole.UserRole, "add_table")
             db_item.addChild(add_item)
 
-        add_database("Database 1", ["Table1", "Table2", "Table3"])
-        add_database("Database 2", ["Table A", "Table B"])
+        add_database("Database 1")
 
         new_db_button = QPushButton("+ New Database")
         new_db_button.setStyleSheet("""
             QPushButton { background-color: #F0F4F8; color: #4A5668; font-size: 14px; font-weight: 500; border-radius: 6px; padding: 8px; margin: 10px; border: 1px dashed #C6C6C6; }
             QPushButton:hover { background-color: #E2ECFF; border: 1px dashed #3777f0; }
         """)
+        new_db_button.clicked.connect(add_database)
 
         logout_button = QPushButton("LOG OUT")
         logout_button.setStyleSheet("""
@@ -84,6 +80,7 @@ class SideBar(QWidget):
         diagram_page = self.stacked_center.widget(0)
         
         page.table_data_ready.connect(diagram_page.add_table_card)
+        page.field_deleted.connect(diagram_page.remove_field_from_card)
         idx = self.stacked_center.addWidget(page)
         self.page_map[table_name] = (page, idx)
         return idx

@@ -15,6 +15,7 @@ from items.InputFieldsWindow import InputFieldsWindow
 
 class TableDetailsPage(QWidget):
     table_data_ready = pyqtSignal(str, list)
+    field_deleted = pyqtSignal(str, list)
 
     def __init__(self, table_name, stacked):
         super().__init__()
@@ -101,6 +102,7 @@ class TableDetailsPage(QWidget):
         for row in sorted(selected_rows, reverse=True):
             self.table.removeRow(row)
             del self.rows[row]
+        
 
     def delete_selected_field(self):
         selected_items = self.scheme.selectedItems()
@@ -117,6 +119,7 @@ class TableDetailsPage(QWidget):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
+        
         column_index = selected_row
         self.table.removeColumn(column_index)
         self.scheme.removeRow(selected_row)
@@ -124,6 +127,9 @@ class TableDetailsPage(QWidget):
         for row_data in self.rows:
             if column_index < len(row_data):
                 del row_data[column_index]
+        
+        
+       
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Delete:
@@ -161,6 +167,7 @@ class TableDetailsPage(QWidget):
                         for row_data in self.rows:
                             if col_index < len(row_data):
                                 del row_data[col_index]
+            self.field_deleted.emit(self.table_name, [x[0] for x in self.columns])
         else:
             super().keyPressEvent(event)
 

@@ -74,3 +74,11 @@ class DiagramPage(QWidget):
             # Increment position for the next NEW card
             x += 200
             y += 200
+
+    def remove_field_from_card(self, table_name, columns):
+        """
+        This is called when TableDetailsPage emits: 
+            field_deleted.emit(table_name, updated_columns)
+        """
+        self.cards[table_name].update_fields(columns)
+        self.table_area.update()
