@@ -2,13 +2,14 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton,
-    QFrame, QTreeWidget, QTreeWidgetItem,
+    QFrame, QTreeWidget, QTreeWidgetItem, QDialog
 )
 from PyQt6.QtCore import (
     Qt
 )
 
 from items.TableDetailsPage import TableDetailsPage
+from items.InputTableNameWindow import InputTableNameWindow
 
 
 class SideBar(QWidget):
@@ -88,22 +89,21 @@ class SideBar(QWidget):
     def on_tree_click(self, item):
         role = item.data(0, Qt.ItemDataRole.UserRole)
         if role == "add_table":
+            input_field = InputTableNameWindow()
+            result = input_field.exec()
+            if result == QDialog.DialogCode.Accepted:
+                table_name_received = input_field.get_data()
+            else:
+                return
             parent = item.parent()
             if parent:
-                base = "NewTable"
-                idx = 1
-                new_name = f"{base}{idx}"
-                existing = {parent.child(i).text(0) for i in range(parent.childCount())}
-                while new_name in existing:
-                    idx += 1
-                    new_name = f"{base}{idx}"
-                new_table_item = QTreeWidgetItem([new_name])
+                new_table_item = QTreeWidgetItem([table_name_received])
                 new_table_item.setData(0, Qt.ItemDataRole.UserRole, "table")
                 parent.insertChild(parent.childCount() - 1, new_table_item)
-                self.create_table_page(new_name)
-                page_index = self.page_map[new_name][1]
+                self.create_table_page(table_name_received)
+                page_index = self.page_map[table_name_received][1]
                 self.stacked_center.setCurrentIndex(page_index)
-                print(f"Created new table in {parent.text(0)}: {new_name}")
+                print(f"Created new table in {parent.text(0)}: {table_name_received}")
         elif role == "table":
             table_name = item.text(0)
             if table_name not in self.page_map:
