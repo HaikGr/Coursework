@@ -1,136 +1,125 @@
-from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QWidget
-)
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPixmap
+from PyQt6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
 from items.FieldRow import FieldRow
-
 
 class TableCard(QFrame):
     moved = pyqtSignal()
 
     def __init__(self, table_name, fields, parent=None):
         super().__init__(parent)
-
         self.table_name = table_name
         self.fields = fields
         self.drag_pos = None
 
-        self.setFixedSize(240, 260)   # slightly taller to allow scroll
+        self.setFixedSize(280, 360)
+
+        # Separate fields
+        self.pk_fields = [f for f in fields if f[3] == "PK"]
+        self.fk_fields = [f for f in fields if f[3] == "FK"]
+        self.main_fields = [f for f in fields if f[3] not in ("PK","FK")]
+
+        self.pk_rows = []
+        self.fk_rows = []
+        self.main_rows = []
+
         self.setStyleSheet("""
-            QFrame {
-                background-color: #2E3641;
-                border-radius: 10px;
-                border: 1px solid #4A4F55;
-            }
+            QFrame { background-color: #2E3641; border-radius: 10px; border: 1px solid #4A4F55; }
             QLabel { color: white; font-size: 14px; }
         """)
-
-        # MAIN LAYOUT
         self.main_layout = QVBoxLayout(self)
-        self.main_layout.setContentsMargins(0, 12, 0, 15)
+        self.main_layout.setContentsMargins(6,6,6,6)
         self.main_layout.setSpacing(6)
 
-        # Build UI
         self._build_header()
-        self._build_scroll_area()
+        self._build_pk_section()
+        self._build_fk_section()
+        self._build_main_fields_section()
         self.load_fields()
 
-    # -------------------------
-    # HEADER
-    # -------------------------
     def _build_header(self):
-        header = QHBoxLayout()
+        header_layout = QHBoxLayout()
         title = QLabel(self.table_name)
-        title.setStyleSheet("font-weight: bold; font-size: 15px;")
+        title.setStyleSheet("font-weight: bold; font-size: 16px;")
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        self.main_layout.addLayout(header_layout)
 
-        dot = QLabel()
-        dot.setFixedSize(10, 10)
-        dot.setStyleSheet("background-color: #2ecc71; border-radius: 5px;")
+    def _build_pk_section(self):
+        self.pk_label = QLabel("Primary Keys")
+        self.pk_label.setStyleSheet("font-weight: bold; color: #2ecc71;")
+        self.main_layout.addWidget(self.pk_label)
 
-        header.addWidget(title)
-        header.addStretch()
-        header.addWidget(dot)
-        self.main_layout.addLayout(header)
+        self.pk_container_widget = QWidget()
+        self.pk_layout = QVBoxLayout(self.pk_container_widget)
+        self.pk_layout.setContentsMargins(0,0,0,0)
+        self.pk_layout.setSpacing(2)
+        self.main_layout.addWidget(self.pk_container_widget)
 
-        # right-side arrow
-        self.arrow = QLabel(self)
-        arrow_pix = QPixmap(22, 22)
-        arrow_pix.fill(Qt.GlobalColor.transparent)
-        p = QPainter(arrow_pix)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(QColor("#A6B0BD"))
-        p.drawPolygon(QPoint(5, 5), QPoint(17, 11), QPoint(5, 17))
-        p.end()
-        self.arrow.setPixmap(arrow_pix)
-        self.arrow.move(self.width() - 28, self.height() // 2 - 10)
-        self.arrow.show()
+    def _build_fk_section(self):
+        self.fk_label = QLabel("Foreign Keys")
+        self.fk_label.setStyleSheet("font-weight: bold; color: #FFD57F;")
+        self.main_layout.addWidget(self.fk_label)
 
-    # -------------------------
-    # SCROLL AREA + FIELD CONTAINER
-    # -------------------------
-    def _build_scroll_area(self):
+        self.fk_container_widget = QWidget()
+        self.fk_layout = QVBoxLayout(self.fk_container_widget)
+        self.fk_layout.setContentsMargins(0,0,0,0)
+        self.fk_layout.setSpacing(2)
+        self.main_layout.addWidget(self.fk_container_widget)
+
+    def _build_main_fields_section(self):
+        self.fields_label = QLabel("Fields")
+        self.fields_label.setStyleSheet("font-weight: bold; color: #FFFFFF;")
+        self.main_layout.addWidget(self.fields_label)
+
         self.scroll = QScrollArea()
+        self.scroll.setFixedHeight(180)
         self.scroll.setWidgetResizable(True)
-        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll.setStyleSheet("border: none; background-color: #485262;")
+        self.scroll.setStyleSheet("background-color: #485262; border: none;")
 
-        # content widget inside scroll
-        self.content_widget = QWidget()
-        self.fields_layout = QVBoxLayout(self.content_widget)
-        self.fields_layout.setContentsMargins(0, 0, 0, 0)
-        self.fields_layout.setSpacing(5)
-
-        self.scroll.setWidget(self.content_widget)
+        self.main_widget = QWidget()
+        self.main_layout_scroll = QVBoxLayout(self.main_widget)
+        self.main_layout_scroll.setContentsMargins(0,0,0,0)
+        self.main_layout_scroll.setSpacing(2)
+        self.main_layout_scroll.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.scroll.setWidget(self.main_widget)
         self.main_layout.addWidget(self.scroll)
-        
 
-    # -------------------------
-    # LOAD / RELOAD FIELDS
-    # -------------------------
     def load_fields(self):
-        # remove old rows
-        while self.fields_layout.count():
-            item = self.fields_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        for l in [self.pk_rows, self.fk_rows, self.main_rows]:
+            for r in l:
+                r.deleteLater()
+        self.pk_rows.clear()
+        self.fk_rows.clear()
+        self.main_rows.clear()
 
-        self.field_rows = []  
+        # PK
+        for f in self.pk_fields:
+            row = FieldRow(self, f)
+            self.pk_layout.addWidget(row)
+            self.pk_rows.append(row)
 
-        # add rows
-        for f in self.fields:
-            # f is [field_name, type, isnull, pk_flag, fk_table, fk_field]
-            display_text = f"{f[0]} {f[1]}"  # "field_name type"
-            if f[3] != "-":
-                display_text += f" {f[3]}"    # add PK/FK if exists
-            if f[4] != "-" and f[5] != "-":
-                display_text += f" → {f[4]}.{f[5]}"  # show FK reference
+        # FK
+        for f in self.fk_fields:
+            row = FieldRow(self, f)
+            self.fk_layout.addWidget(row)
+            self.fk_rows.append(row)
 
-            row = FieldRow(self, display_text)  # pass string now
+        # Main fields
+        for f in self.main_fields:
+            row = FieldRow(self, f)
+            self.main_layout_scroll.addWidget(row)
+            self.main_rows.append(row)
+        self.main_layout_scroll.addStretch()
 
-            pill = QFrame()
-            pill.setStyleSheet("background-color: #576476; border-radius: 8px;")
-            p_layout = QVBoxLayout(pill)
-            p_layout.setContentsMargins(4, 3, 4, 3)
-            p_layout.addWidget(row)
-
-            self.fields_layout.addWidget(pill)
-
-        self.fields_layout.addStretch()
-
-
-    # -------------------------
-    # FIELD UPDATE
-    # -------------------------
-    def update_fields(self, new_fields):
-        self.fields = new_fields
+    def update_fields(self, fields):
+        self.fields = fields
+        self.pk_fields = [f for f in fields if f[3] == "PK"]
+        self.fk_fields = [f for f in fields if f[3] == "FK"]
+        self.main_fields = [f for f in fields if f[3] not in ("PK","FK")]
         self.load_fields()
         self.moved.emit()
 
-    # -------------------------
-    # DRAGGING
-    # -------------------------
+    # Dragging
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_pos = event.globalPosition().toPoint() - self.pos()
