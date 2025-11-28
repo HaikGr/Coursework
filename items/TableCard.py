@@ -100,7 +100,14 @@ class TableCard(QFrame):
 
         # add rows
         for f in self.fields:
-            row = FieldRow(self, f)
+            # f is [field_name, type, isnull, pk_flag, fk_table, fk_field]
+            display_text = f"{f[0]} {f[1]}"  # "field_name type"
+            if f[3] != "-":
+                display_text += f" {f[3]}"    # add PK/FK if exists
+            if f[4] != "-" and f[5] != "-":
+                display_text += f" → {f[4]}.{f[5]}"  # show FK reference
+
+            row = FieldRow(self, display_text)  # pass string now
 
             pill = QFrame()
             pill.setStyleSheet("background-color: #576476; border-radius: 8px;")
@@ -111,6 +118,7 @@ class TableCard(QFrame):
             self.fields_layout.addWidget(pill)
 
         self.fields_layout.addStretch()
+
 
     # -------------------------
     # FIELD UPDATE
