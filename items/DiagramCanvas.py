@@ -111,3 +111,8 @@ class DiagramCanvas(QWidget):
             self.popup.hide()
             self.popup.deleteLater()
             self.popup = None
+
+    def remove_card(self, card):
+        if card in self.cards:
+            self.cards.remove(card)
+        self.update()

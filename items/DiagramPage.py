@@ -82,3 +82,21 @@ class DiagramPage(QWidget):
         """
         self.cards[table_name].update_fields(columns)
         self.table_area.update()
+
+    def remove_table_card(self, table_name):
+        """Remove a table card completely from the diagram page."""
+        if table_name not in self.cards:
+            return
+
+        card = self.cards.pop(table_name)
+
+        # Remove from DiagramCanvas list
+        if hasattr(self.table_area, "remove_card"):
+            self.table_area.remove_card(card)
+
+        # Delete widget
+        card.setParent(None)
+        card.deleteLater()
+
+        # Update diagram (connections, redraw, etc.)
+        self.table_area.update()

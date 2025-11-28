@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton,
-    QFrame, QTreeWidget, QTreeWidgetItem, QDialog
+    QFrame, QTreeWidget, QTreeWidgetItem, QDialog, QMessageBox
 )
 from PyQt6.QtCore import (
     Qt
@@ -23,6 +23,7 @@ class SideBar(QWidget):
         self.setLayout(sidebar_layout)
         self.setFixedWidth(240)
         self.setStyleSheet("background-color: #FFFFFF;")
+
 
         databases_text = QFrame()
         databases_text.setFixedHeight(40)
@@ -45,6 +46,9 @@ class SideBar(QWidget):
             QTreeWidget::item:selected { background-color: #2a6bee; color: white; }
         """)
         self.db_tree.itemClicked.connect(self.on_tree_click)
+        
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.db_tree.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         def add_database(name):
             db_item = QTreeWidgetItem([name])
@@ -91,22 +95,76 @@ class SideBar(QWidget):
         if role == "add_table":
             input_field = InputTableNameWindow()
             result = input_field.exec()
-            if result == QDialog.DialogCode.Accepted:
-                table_name_received = input_field.get_data()
-            else:
+
+            if result != QDialog.DialogCode.Accepted:
                 return
+
+            table_name_received = input_field.get_data()
+
+            # ---------- NEW CODE: prevent duplicates ----------
             parent = item.parent()
-            if parent:
-                new_table_item = QTreeWidgetItem([table_name_received])
-                new_table_item.setData(0, Qt.ItemDataRole.UserRole, "table")
-                parent.insertChild(parent.childCount() - 1, new_table_item)
-                self.create_table_page(table_name_received)
-                page_index = self.page_map[table_name_received][1]
-                self.stacked_center.setCurrentIndex(page_index)
-                print(f"Created new table in {parent.text(0)}: {table_name_received}")
+            existing_names = {
+                parent.child(i).text(0)
+                for i in range(parent.childCount())
+            }
+
+            if table_name_received in existing_names:
+                QMessageBox.warning(self, "Duplicate Table",
+                                    f"Table '{table_name_received}' already exists!")
+                return
+            # --------------------------------------------------
+
+            # Create new table
+            new_table_item = QTreeWidgetItem([table_name_received])
+            new_table_item.setData(0, Qt.ItemDataRole.UserRole, "table")
+            parent.insertChild(parent.childCount() - 1, new_table_item)
+
+            self.create_table_page(table_name_received)
+            page_index = self.page_map[table_name_received][1]
+            self.stacked_center.setCurrentIndex(page_index)
         elif role == "table":
             table_name = item.text(0)
             if table_name not in self.page_map:
                 self.create_table_page(table_name)
             page_index = self.page_map[table_name][1]
             self.stacked_center.setCurrentIndex(page_index)
+    
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete:
+            item = self.db_tree.currentItem()
+            if not item:
+                return
+
+            role = item.data(0, Qt.ItemDataRole.UserRole)
+
+            # only delete tables, not databases or "+ Add Table"
+            if role != "table":
+                return
+
+            table_name = item.text(0)
+
+            confirm = QMessageBox.question(
+                self,
+                "Delete Table",
+                f"Are you sure you want to delete '{table_name}'?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+            if confirm == QMessageBox.StandardButton.Yes:
+                parent = item.parent()
+                parent.removeChild(item)
+
+                # remove page from stacked widget
+            if table_name in self.page_map:
+                page, idx = self.page_map.pop(table_name)
+
+                # 1. Remove from stacked pages
+                widget = self.stacked_center.widget(idx)
+                self.stacked_center.removeWidget(widget)
+                widget.deleteLater()
+
+                # 2. Remove from DiagramPage
+                diagram_page = self.stacked_center.widget(0)
+                diagram_page.remove_table_card(table_name)
+
+                print(f"Table '{table_name}' deleted.")

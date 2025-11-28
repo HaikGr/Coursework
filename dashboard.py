@@ -1,19 +1,15 @@
 # dashboard.py
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QHBoxLayout, QLabel,
-    QTreeWidgetItem, QStackedWidget
+    QVBoxLayout, QHBoxLayout, QStackedWidget
 )
-from PyQt6.QtCore import (
-    Qt
-)
+
 import sys
 
 from items.TopBar import TopBar
 from items.SideBar import SideBar
 from items.DiagramPage import DiagramPage
 from items.SQLQuerryBuilder import SQLQuerryBuilder
-from items.TableDetailsPage import TableDetailsPage
 
 
 # ---------------------------
