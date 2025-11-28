@@ -1,6 +1,9 @@
 from PyQt6.QtWidgets import QFrame, QLabel, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 
+from PyQt6.QtWidgets import QFrame, QLabel, QHBoxLayout
+from PyQt6.QtCore import Qt, pyqtSignal
+
 class FieldRow(QFrame):
     clicked = pyqtSignal(object)
     

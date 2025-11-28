@@ -15,11 +15,16 @@ class DiagramCanvas(QWidget):
         self.setStyleSheet("background-color: #1A1F2E;")
 
     def add_card(self, card):
+        """Add a card to the canvas and connect its field rows"""
         card.canvas = self
         self.cards.append(card)
         card.moved.connect(self.update)
 
-        # Connect all field rows for potential connections
+        # Connect existing field rows
+        self._connect_card_fields(card)
+
+    def _connect_card_fields(self, card):
+        """Connect all field rows in a card to the click handler"""
         all_rows = []
         if hasattr(card, 'pk_rows'):
             all_rows.extend(card.pk_rows)
@@ -29,7 +34,16 @@ class DiagramCanvas(QWidget):
             all_rows.extend(card.main_rows)
         
         for row in all_rows:
+            # Disconnect first to avoid duplicate connections
+            try:
+                row.clicked.disconnect(self.on_field_clicked)
+            except:
+                pass
             row.clicked.connect(self.on_field_clicked)
+
+    def update_card_fields(self, card):
+        """Re-connect field rows after card update"""
+        self._connect_card_fields(card)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -137,48 +151,94 @@ class DiagramCanvas(QWidget):
         y = pos.y() + h // 2
         return (int(x), int(y))
 
+    def connection_exists(self, field1, field2):
+        """Check if a connection already exists between two fields"""
+        for _, pk_field, _, fk_field, _ in self.connections:
+            if (pk_field == field1 and fk_field == field2) or \
+               (pk_field == field2 and fk_field == field1):
+                return True
+        return False
+
     def on_field_clicked(self, field_row):
         """Handle field click for creating connections"""
+        print(f"Field clicked: {field_row.field_data[0]} from table {field_row.table_card.table_name}")
+        
         if self.selected_field is None:
             # Start connection
             self.selected_field = field_row
             field_row.set_connection_role(is_source=True)
-
+            
             start = self.get_field_center(field_row, left=False)
             self.drag_preview = (start, start)
             self.update()
+            print(f"Started connection from: {field_row.field_data[0]}")
         else:
             # Complete connection
             if self.selected_field == field_row:
                 # Clicked same field - cancel
+                print("Cancelled - same field clicked")
                 self.selected_field.set_connection_role(is_source=False)
                 self.selected_field = None
                 self.drag_preview = None
                 self.update()
                 return
-
-            # Determine connection type based on field types
+            
+            # Don't allow connecting fields from the same table
+            if self.selected_field.table_card == field_row.table_card:
+                print("Cancelled - same table")
+                self.selected_field.set_connection_role(is_source=False)
+                self.selected_field = None
+                self.drag_preview = None
+                self.update()
+                return
+            
+            # Check if connection already exists
+            if self.connection_exists(self.selected_field, field_row):
+                print("Cancelled - connection already exists")
+                self.selected_field.set_connection_role(is_source=False)
+                self.selected_field = None
+                self.drag_preview = None
+                self.update()
+                return
+            
+            # Get field types
             source_type = self.selected_field.field_data[3] if len(self.selected_field.field_data) > 3 else ""
             target_type = field_row.field_data[3] if len(field_row.field_data) > 3 else ""
-
-            # **Allow PK->FK only**
-            if source_type == "PK" and target_type == "FK":
+            
+            print(f"Attempting connection: {source_type} -> {target_type}")
+            
+            # Allow PK->FK or FK->PK connections (bidirectional)
+            if (source_type == "PK" and target_type == "FK") or \
+               (source_type == "FK" and target_type == "PK"):
+                
+                # Ensure PK is always source, FK is always target
+                if source_type == "PK":
+                    pk_field = self.selected_field
+                    fk_field = field_row
+                else:
+                    pk_field = field_row
+                    fk_field = self.selected_field
+                
                 relation = "one-to-many"
-
-                # Add connection to list
+                
+                # Add connection
                 self.connections.append((
-                    self.selected_field.table_card,
-                    self.selected_field,
-                    field_row.table_card,
-                    field_row,
+                    pk_field.table_card, 
+                    pk_field,
+                    fk_field.table_card, 
+                    fk_field,
                     relation
                 ))
-
+                
+                print(f"Created connection: {pk_field.field_data[0]} (PK) -> {fk_field.field_data[0]} (FK)")
+                
                 # Update visual indicators
-                self.selected_field.set_connection_role(is_source=True)
-                field_row.set_connection_role(is_target=True)
-
-            # Reset selection
+                pk_field.set_connection_role(is_source=True)
+                fk_field.set_connection_role(is_target=True)
+            else:
+                print(f"Connection not allowed: {source_type} -> {target_type}")
+            
+            # Always reset selection
             self.selected_field.set_connection_role(is_source=False)
             self.selected_field = None
             self.drag_preview = None
@@ -207,19 +267,20 @@ class DiagramCanvas(QWidget):
         if card in self.cards:
             self.cards.remove(card)
         
-        # Clear connection roles
-        for pk_card, pk_field, fk_card, fk_field, _ in self.connections:
+        # Clear connection roles and collect connections to remove
+        connections_to_remove = []
+        for pk_card, pk_field, fk_card, fk_field, relation in self.connections:
             if pk_card == card or fk_card == card:
+                connections_to_remove.append((pk_card, pk_field, fk_card, fk_field, relation))
                 if pk_card == card:
                     pk_field.set_connection_role(is_source=False)
                 if fk_card == card:
                     fk_field.set_connection_role(is_target=False)
         
         # Remove connections
-        self.connections = [
-            conn for conn in self.connections
-            if conn[0] != card and conn[2] != card
-        ]
+        for conn in connections_to_remove:
+            self.connections.remove(conn)
+        
         self.update()
 
     def remove_connection(self, connection):
