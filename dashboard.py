@@ -9,7 +9,7 @@ import sys
 from items.TopBar import TopBar
 from items.SideBar import SideBar
 from items.DiagramPage import DiagramPage
-from items.SQLQuerryBuilder import SQLQuerryBuilder
+from items.SQLQueryBuilder import SQLQueryBuilder
 
 
 # ---------------------------
@@ -49,7 +49,11 @@ class DashboardWindow(QMainWindow):
         self.sidebar_widget = SideBar(self.stacked_center)
         body_layout.addWidget(self.sidebar_widget)
 
-        self.diagram_page = DiagramPage()
+        # Create SQL builder first
+        self.sql_builder = SQLQueryBuilder()
+
+        # Pass SQL builder to DiagramPage
+        self.diagram_page = DiagramPage(sql_builder=self.sql_builder)
         self.stacked_center.addWidget(self.diagram_page)
 
         add_table_page = QWidget()
@@ -58,8 +62,8 @@ class DashboardWindow(QMainWindow):
 
         body_layout.addWidget(self.stacked_center, stretch=3)
 
-        sql_widget = SQLQuerryBuilder()
-        body_layout.addWidget(sql_widget, stretch=1)
+        # Add the SQL builder to the layout
+        body_layout.addWidget(self.sql_builder, stretch=1)
 
         
     def log_out(self):

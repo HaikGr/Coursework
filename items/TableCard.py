@@ -11,6 +11,7 @@ class TableCard(QFrame):
         self.table_name = table_name
         self.fields = fields
         self.drag_pos = None
+        self.is_dragging = False
         self.setFixedSize(200, 300)
 
         # Separate fields
@@ -55,15 +56,15 @@ class TableCard(QFrame):
 
     # ---------------- HEADER ----------------
     def _build_header(self):
-        header_container = QFrame()
-        header_container.setStyleSheet("""
+        self.header_container = QFrame()
+        self.header_container.setStyleSheet("""
             QFrame {
                 background-color: #2D3748;
                 border-top-left-radius: 12px;
                 border-top-right-radius: 12px;
             }
         """)
-        layout = QHBoxLayout(header_container)
+        layout = QHBoxLayout(self.header_container)
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(6)
 
@@ -81,7 +82,7 @@ class TableCard(QFrame):
         layout.addStretch()
         layout.addWidget(status)
 
-        self.main_layout.addWidget(header_container)
+        self.main_layout.addWidget(self.header_container)
 
     def _build_pk_section(self):
         container = QWidget()
@@ -107,8 +108,6 @@ class TableCard(QFrame):
 
         self.main_layout.addWidget(container)
 
-
-    # Inside _build_fk_section
     def _build_fk_section(self):
         container = QWidget()
         container.setStyleSheet("background-color: #5A6C7D;")
@@ -133,8 +132,6 @@ class TableCard(QFrame):
 
         self.main_layout.addWidget(container)
 
-
-    # Inside _build_main_section
     def _build_main_section(self):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -173,18 +170,18 @@ class TableCard(QFrame):
 
     # ---------------- FOOTER ----------------
     def _build_footer(self):
-        footer = QFrame()
-        footer.setStyleSheet("""
+        self.footer = QFrame()
+        self.footer.setStyleSheet("""
             QFrame {background-color:#2D3748; border-bottom-left-radius:12px; border-bottom-right-radius:12px;}
         """)
-        layout = QHBoxLayout(footer)
+        layout = QHBoxLayout(self.footer)
         layout.setContentsMargins(12,4,12,4)
 
         total_fields = len(self.fields)
         count_label = QLabel(f"{total_fields} field{'s' if total_fields != 1 else ''}")
         count_label.setStyleSheet("color:#A0AEC0; font-size:11px;")
 
-        action_label = QLabel("Click to select")
+        action_label = QLabel("Drag here to move")
         action_label.setStyleSheet("color:#718096; font-size:11px;")
         action_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
@@ -192,7 +189,7 @@ class TableCard(QFrame):
         layout.addStretch()
         layout.addWidget(action_label)
 
-        self.main_layout.addWidget(footer)
+        self.main_layout.addWidget(self.footer)
 
     # ---------------- HEIGHT ADJUST ----------------
     def _adjust_height(self):
@@ -206,18 +203,57 @@ class TableCard(QFrame):
 
     # ---------------- UPDATE ----------------
     def update_fields(self, fields):
+        # Store old field references and their connections
+        old_field_map = {}
+        for row in self.pk_rows + self.fk_rows + self.main_rows:
+            field_name = row.field_data[0]
+            field_type = row.field_data[3] if len(row.field_data) > 3 else ''
+            old_field_map[(field_name, field_type)] = row
+        
         self.fields = fields
         self.pk_fields = [f for f in fields if f[3]=="PK"]
         self.fk_fields = [f for f in fields if f[3]=="FK"]
         self.main_fields = [f for f in fields if f[3] not in ("PK","FK")]
 
-        # Clear old rows and layout
+        # Update connections in canvas before deleting rows
+        if hasattr(self, 'canvas') and self.canvas:
+            new_connections = []
+            for pk_field, fk_field, relation in list(self.canvas.connections):
+                # Skip connections from this card's old fields
+                if pk_field.table_card == self or fk_field.table_card == self:
+                    # Try to find matching new field
+                    if pk_field.table_card == self:
+                        pk_name = pk_field.field_data[0]
+                        pk_type = pk_field.field_data[3] if len(pk_field.field_data) > 3 else ''
+                        # Check if field still exists in new fields
+                        field_exists = any(f[0] == pk_name and f[3] == pk_type for f in fields)
+                        if not field_exists:
+                            # Remove connection count from fk_field
+                            fk_field.remove_connection()
+                            continue
+                    
+                    if fk_field.table_card == self:
+                        fk_name = fk_field.field_data[0]
+                        fk_type = fk_field.field_data[3] if len(fk_field.field_data) > 3 else ''
+                        # Check if field still exists in new fields
+                        field_exists = any(f[0] == fk_name and f[3] == fk_type for f in fields)
+                        if not field_exists:
+                            # Remove connection count from pk_field
+                            pk_field.remove_connection()
+                            continue
+                
+                new_connections.append((pk_field, fk_field, relation))
+            
+            self.canvas.connections = new_connections
+
+        # Clear old rows
         for row in self.pk_rows + self.fk_rows + self.main_rows:
             row.deleteLater()
         self.pk_rows.clear()
         self.fk_rows.clear()
         self.main_rows.clear()
 
+        # Clear layout
         while self.main_layout.count():
             item = self.main_layout.takeAt(0)
             if item.widget():
@@ -230,24 +266,95 @@ class TableCard(QFrame):
         self._build_main_section()
         self._build_footer()
         self._adjust_height()
+        
+        # Reconnect new fields to canvas
+        if hasattr(self, 'canvas') and self.canvas:
+            self.canvas.update_card_fields(self)
+            
+            # Restore connections with new field references
+            updated_connections = []
+            for pk_field, fk_field, relation in self.canvas.connections:
+                new_pk = pk_field
+                new_fk = fk_field
+                
+                # If pk_field is from this card, find new reference
+                if pk_field.table_card == self:
+                    pk_name = pk_field.field_data[0]
+                    pk_type = pk_field.field_data[3] if len(pk_field.field_data) > 3 else ''
+                    # Find new field row with same name and type
+                    for row in self.pk_rows + self.fk_rows + self.main_rows:
+                        if (row.field_data[0] == pk_name and 
+                            (row.field_data[3] if len(row.field_data) > 3 else '') == pk_type):
+                            new_pk = row
+                            row.connection_count = pk_field.connection_count
+                            row.add_connection()
+                            break
+                
+                # If fk_field is from this card, find new reference
+                if fk_field.table_card == self:
+                    fk_name = fk_field.field_data[0]
+                    fk_type = fk_field.field_data[3] if len(fk_field.field_data) > 3 else ''
+                    # Find new field row with same name and type
+                    for row in self.pk_rows + self.fk_rows + self.main_rows:
+                        if (row.field_data[0] == fk_name and 
+                            (row.field_data[3] if len(row.field_data) > 3 else '') == fk_type):
+                            new_fk = row
+                            row.connection_count = fk_field.connection_count
+                            row.add_connection()
+                            break
+                
+                updated_connections.append((new_pk, new_fk, relation))
+            
+            self.canvas.connections = updated_connections
+            self.canvas.update()
+        
         self.moved.emit()
 
-    # ---------------- DRAG ----------------
+    # ---------------- DRAG - ONLY FROM HEADER/FOOTER ----------------
+    def is_click_on_draggable_area(self, pos):
+        """Check if click is on header or footer (draggable areas)"""
+        # Check if click is on header
+        if hasattr(self, 'header_container'):
+            header_rect = self.header_container.geometry()
+            if header_rect.contains(pos):
+                return True
+        
+        # Check if click is on footer
+        if hasattr(self, 'footer'):
+            footer_rect = self.footer.geometry()
+            if footer_rect.contains(pos):
+                return True
+        
+        return False
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.drag_pos = event.globalPosition().toPoint() - self.pos()
-            self.raise_()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            # Only start dragging if clicked on header or footer
+            if self.is_click_on_draggable_area(event.pos()):
+                self.drag_pos = event.globalPosition().toPoint() - self.pos()
+                self.is_dragging = True
+                self.raise_()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+                event.accept()
+                return
+        
+        # Let the event propagate to child widgets (FieldRows)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.drag_pos and event.buttons() == Qt.MouseButton.LeftButton:
+        if self.is_dragging and self.drag_pos and event.buttons() == Qt.MouseButton.LeftButton:
             new_pos = event.globalPosition().toPoint() - self.drag_pos
             self.move(int(new_pos.x()), int(new_pos.y()))
             self.moved.emit()
-        super().mouseMoveEvent(event)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        self.drag_pos = None
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
-        super().mouseReleaseEvent(event)
+        if self.is_dragging:
+            self.is_dragging = False
+            self.drag_pos = None
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
