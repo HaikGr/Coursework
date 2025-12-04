@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QPoint, QPointF
+from PyQt6.QtCore import Qt, QPoint, QPointF, pyqtSignal
 from PyQt6.QtGui import QPainter, QPen, QColor, QPainterPath
 import math
 
@@ -10,6 +10,7 @@ class DiagramCanvas(QWidget):
 
     Workflow: Click source field -> drag -> release on target field
     """
+    connections_changed = pyqtSignal()  # Emitted when connections are modified
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -256,6 +257,9 @@ class DiagramCanvas(QWidget):
             # Update connection counts
             pk_field.add_connection()
             fk_field.add_connection()
+            
+            # Notify listeners that connections changed
+            self.connections_changed.emit()
 
         # Reset selection
         self.cancel_connection()
@@ -331,6 +335,8 @@ class DiagramCanvas(QWidget):
             if conn in self.connections:
                 self.connections.remove(conn)
 
+        if connections_to_remove:
+            self.connections_changed.emit()
         self.update()
 
     def remove_connection(self, connection):
@@ -343,12 +349,16 @@ class DiagramCanvas(QWidget):
             fk_field.remove_connection()
 
             self.connections.remove(connection)
+            self.connections_changed.emit()
             self.update()
 
     def clear_all_connections(self):
         """Clear all connections"""
+        had_connections = len(self.connections) > 0
         for pk_field, fk_field, _ in list(self.connections):
             pk_field.remove_connection()
             fk_field.remove_connection()
         self.connections.clear()
+        if had_connections:
+            self.connections_changed.emit()
         self.update()

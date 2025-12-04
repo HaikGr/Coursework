@@ -14,17 +14,21 @@ class DiagramPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Toolbar (if exists)
-        try:
-            from items.ToolBar import Toolbar
-            toolbar = Toolbar()
-            layout.addWidget(toolbar)
-        except Exception:
-            pass
+        # Toolbar
+        from items.ToolBar import Toolbar
+        self.toolbar = Toolbar()
+        layout.addWidget(self.toolbar)
+        
+        # Connect toolbar aggregate selection to SQL builder
+        if self.sql_builder:
+            self.toolbar.aggregate_selected.connect(self.sql_builder.set_aggregate)
 
         # Canvas
         self.table_area = DiagramCanvas()
         self.table_area.setMinimumSize(1400, 900)
+        
+        # Connect canvas connection changes to SQL builder
+        self.table_area.connections_changed.connect(self._on_connections_changed)
 
         canvas_scroll = QScrollArea()
         canvas_scroll.setWidgetResizable(True)
@@ -35,6 +39,11 @@ class DiagramPage(QWidget):
 
         self.cards = {}
         self._x, self._y = 120, 80
+
+    def _on_connections_changed(self):
+        """Update SQL builder when canvas connections change"""
+        if self.sql_builder:
+            self.sql_builder.set_connections(self.table_area.connections)
 
     def add_table_card(self, table_name, columns):
         """Add or update a table card"""
@@ -78,14 +87,27 @@ class DiagramPage(QWidget):
                 row.selected_for_query.disconnect()
             except:
                 pass
+            try:
+                row.condition_added.disconnect()
+            except:
+                pass
+            
             # Connect to SQL builder
             row.selected_for_query.connect(self._on_field_selected_for_query)
+            row.condition_added.connect(self._on_condition_added)
 
     def _on_field_selected_for_query(self, table_name, field_name, field_type):
         """Handle field selection for query building (triggered by RIGHT-CLICK)"""
-        print(f"Field selected: {table_name}.{field_name} ({field_type})")  # Debug
         if self.sql_builder:
             self.sql_builder.add_field(table_name, field_name, field_type)
+
+    def _on_condition_added(self, table_name, field_name, condition):
+        """Handle WHERE condition added from field hover popup"""
+        if self.sql_builder:
+            # First make sure field is selected
+            self.sql_builder.add_field(table_name, field_name, "")
+            # Then add the condition
+            self.sql_builder.add_condition(table_name, field_name, condition)
 
     def remove_field_from_card(self, table_name, columns):
         """Remove fields from a card"""

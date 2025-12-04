@@ -1,122 +1,315 @@
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QDialog, QDialogButtonBox, QComboBox, QCheckBox
+    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDialog, 
+    QPushButton, QComboBox, QCheckBox, QSpinBox
 )
+from PyQt6.QtCore import Qt
 
 
 class InputFieldsWindow(QDialog):
     def __init__(self, types_list=None, table_names=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Field")
-        self.setFixedSize(350, 250)
+        self.setFixedSize(360, 380)
+        self.setModal(True)
         self.return_data = None
 
         if types_list is None:
-            types_list = ["Int", "Money", "String"]
-        if table_names is None:
-            table_names = []
+            types_list = [
+                "int", "bigint", "smallint", "tinyint",
+                "decimal", "numeric", "money", "smallmoney",
+                "float", "real",
+                "char", "varchar", "nchar", "nvarchar", "text", "ntext",
+                "date", "datetime", "datetime2", "time", "timestamp",
+                "bit", "binary", "varbinary", "image",
+                "uniqueidentifier"
+            ]
 
-        self.table_schemas = {}  # e.g., {"Users": ["id", "name"]}
+        self.table_schemas = {}
+
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #1e293b;
+            }
+            QLabel {
+                color: #e2e8f0;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QLineEdit {
+                background-color: #334155;
+                color: #f1f5f9;
+                border: 2px solid #475569;
+                border-radius: 8px;
+                padding: 12px 14px;
+                font-size: 14px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #3b82f6;
+            }
+            QComboBox {
+                background-color: #334155;
+                color: #f1f5f9;
+                border: 2px solid #475569;
+                border-radius: 8px;
+                padding: 12px 14px;
+                font-size: 14px;
+            }
+            QComboBox:focus {
+                border: 2px solid #3b82f6;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 30px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 6px solid transparent;
+                border-right: 6px solid transparent;
+                border-top: 8px solid #94a3b8;
+                margin-right: 10px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #334155;
+                color: #f1f5f9;
+                selection-background-color: #3b82f6;
+                border: 1px solid #475569;
+            }
+            QSpinBox {
+                background-color: #334155;
+                color: #f1f5f9;
+                border: 2px solid #475569;
+                border-radius: 8px;
+                padding: 12px 14px;
+                font-size: 14px;
+            }
+            QSpinBox:focus {
+                border: 2px solid #3b82f6;
+            }
+            QSpinBox:disabled {
+                background-color: #1e293b;
+                color: #64748b;
+                border: 2px solid #334155;
+            }
+            QCheckBox {
+                color: #e2e8f0;
+                font-size: 14px;
+                spacing: 10px;
+            }
+            QCheckBox::indicator {
+                width: 22px;
+                height: 22px;
+                border-radius: 6px;
+                border: 2px solid #475569;
+                background-color: #334155;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #3b82f6;
+                border: 2px solid #3b82f6;
+            }
+            QCheckBox:disabled {
+                color: #64748b;
+            }
+            QCheckBox::indicator:disabled {
+                background-color: #1e293b;
+                border: 2px solid #334155;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
+
+        # Header
+        header = QLabel("Add New Field")
+        header.setStyleSheet("font-size: 22px; font-weight: 700; color: #f8fafc;")
+        layout.addWidget(header)
 
         # Field Name
-        self.name_label = QLabel("Field Name:")
+        name_label = QLabel("Field Name")
+        layout.addWidget(name_label)
         self.input_field = QLineEdit()
-
-        # Type
-        self.type_label = QLabel("Type:")
-        self.type_combo = QComboBox()
-        self.type_combo.addItems(types_list)
-
-        # Nullability
-        self.null_label = QLabel("Is Null:")
-        self.null_combo = QComboBox()
-        self.null_combo.addItems(["Null", "Not Null"])
-
-        # PK / FK
-        self.pk_checkbox = QCheckBox("Primary Key")
-        self.fk_checkbox = QCheckBox("Foreign Key")
-        self.fk_checkbox.stateChanged.connect(self.toggle_fk_options)
-
-        self.fk_table_label = QLabel("Reference Table:")
-        self.fk_table_combo = QComboBox()
-        self.fk_table_combo.addItems(table_names)
-        self.fk_field_label = QLabel("Reference Field:")
-        self.fk_field_combo = QComboBox()
-        self.fk_table_combo.currentIndexChanged.connect(self.load_fk_fields)
-
-        self.fk_table_label.hide()
-        self.fk_table_combo.hide()
-        self.fk_field_label.hide()
-        self.fk_field_combo.hide()
-
-        # Buttons
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
-
-        # Layout
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.name_label)
+        self.input_field.setPlaceholderText("Enter field name")
         layout.addWidget(self.input_field)
 
-        hl1 = QHBoxLayout()
-        hl1.addWidget(self.type_label)
-        hl1.addWidget(self.type_combo)
-        layout.addLayout(hl1)
+        # Data Type row
+        type_row = QHBoxLayout()
+        type_row.setSpacing(12)
+        
+        type_col = QVBoxLayout()
+        type_label = QLabel("Data Type")
+        type_col.addWidget(type_label)
+        self.type_combo = QComboBox()
+        self.type_combo.addItems(types_list)
+        self.type_combo.currentTextChanged.connect(self._on_type_changed)
+        type_col.addWidget(self.type_combo)
+        type_row.addLayout(type_col)
+        
+        length_col = QVBoxLayout()
+        length_label = QLabel("Size")
+        length_col.addWidget(length_label)
+        self.length_spin = QSpinBox()
+        self.length_spin.setRange(0, 8000)
+        self.length_spin.setValue(0)
+        self.length_spin.setSpecialValueText("Auto")
+        self.length_spin.setEnabled(False)
+        self.length_spin.setFixedWidth(100)
+        length_col.addWidget(self.length_spin)
+        type_row.addLayout(length_col)
+        
+        layout.addLayout(type_row)
 
-        hl2 = QHBoxLayout()
-        hl2.addWidget(self.null_label)
-        hl2.addWidget(self.null_combo)
-        layout.addLayout(hl2)
+        # Checkboxes in a row
+        check_row = QHBoxLayout()
+        check_row.setSpacing(20)
+        
+        self.null_checkbox = QCheckBox("Nullable")
+        self.null_checkbox.setChecked(True)
+        check_row.addWidget(self.null_checkbox)
+        
+        self.auto_checkbox = QCheckBox("Auto Inc")
+        self.auto_checkbox.stateChanged.connect(self._on_auto_changed)
+        check_row.addWidget(self.auto_checkbox)
+        
+        check_row.addStretch()
+        layout.addLayout(check_row)
 
-        layout.addWidget(self.pk_checkbox)
-        layout.addWidget(self.fk_checkbox)
-        layout.addWidget(self.fk_table_label)
-        layout.addWidget(self.fk_table_combo)
-        layout.addWidget(self.fk_field_label)
-        layout.addWidget(self.fk_field_combo)
-        layout.addWidget(self.buttons)
+        # Key checkboxes
+        key_row = QHBoxLayout()
+        key_row.setSpacing(20)
+        
+        self.pk_checkbox = QCheckBox("Primary Key")
+        self.pk_checkbox.stateChanged.connect(self._on_pk_changed)
+        key_row.addWidget(self.pk_checkbox)
+        
+        self.fk_checkbox = QCheckBox("Foreign Key")
+        self.fk_checkbox.stateChanged.connect(self._on_fk_changed)
+        key_row.addWidget(self.fk_checkbox)
+        
+        key_row.addStretch()
+        layout.addLayout(key_row)
 
-    def toggle_fk_options(self):
-        show = self.fk_checkbox.isChecked()
-        self.fk_table_label.setVisible(show)
-        self.fk_table_combo.setVisible(show)
-        self.fk_field_label.setVisible(show)
-        self.fk_field_combo.setVisible(show)
-        if show:
+        layout.addStretch()
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFixedHeight(44)
+        cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #475569;
+                color: #e2e8f0;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 0 24px;
+            }
+            QPushButton:hover {
+                background-color: #64748b;
+            }
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        
+        add_btn = QPushButton("Add Field")
+        add_btn.setFixedHeight(44)
+        add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                padding: 0 24px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+        """)
+        add_btn.clicked.connect(self.accept)
+        
+        btn_row.addStretch()
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(add_btn)
+        layout.addLayout(btn_row)
+
+    def _on_type_changed(self, type_text):
+        type_lower = type_text.lower()
+        needs_length = any(t in type_lower for t in ['char', 'varchar', 'nchar', 'nvarchar', 'binary', 'varbinary'])
+        self.length_spin.setEnabled(needs_length)
+        if needs_length:
+            if 'varchar' in type_lower:
+                self.length_spin.setValue(255)
+            else:
+                self.length_spin.setValue(50)
+        else:
+            self.length_spin.setValue(0)
+
+    def _on_auto_changed(self):
+        if self.auto_checkbox.isChecked():
+            self.null_checkbox.setChecked(False)
+            self.null_checkbox.setEnabled(False)
+            self.type_combo.setCurrentText("int")
+        else:
+            if not self.pk_checkbox.isChecked():
+                self.null_checkbox.setEnabled(True)
+
+    def _on_pk_changed(self):
+        if self.pk_checkbox.isChecked():
+            self.fk_checkbox.setChecked(False)
+            self.fk_checkbox.setEnabled(False)
+            self.null_checkbox.setChecked(False)
+            self.null_checkbox.setEnabled(False)
+        else:
+            self.fk_checkbox.setEnabled(True)
+            if not self.auto_checkbox.isChecked():
+                self.null_checkbox.setEnabled(True)
+
+    def _on_fk_changed(self):
+        if self.fk_checkbox.isChecked():
             self.pk_checkbox.setChecked(False)
-
-    def load_fk_fields(self):
-        table = self.fk_table_combo.currentText()
-        self.fk_field_combo.clear()
-        if table in self.table_schemas:
-            self.fk_field_combo.addItems(self.table_schemas[table])
+            self.pk_checkbox.setEnabled(False)
+        else:
+            self.pk_checkbox.setEnabled(True)
 
     def accept(self):
         field_name = self.input_field.text().strip()
         if not field_name:
+            self.input_field.setFocus()
+            self.input_field.setStyleSheet("""
+                QLineEdit {
+                    background-color: #334155;
+                    color: #f1f5f9;
+                    border: 2px solid #ef4444;
+                    border-radius: 8px;
+                    padding: 12px 14px;
+                    font-size: 14px;
+                }
+            """)
             return
 
         type_value = self.type_combo.currentText()
-        isnull_value = self.null_combo.currentText()
+        if self.length_spin.isEnabled() and self.length_spin.value() > 0:
+            type_value = f"{type_value}({self.length_spin.value()})"
+
+        isnull_value = "Null" if self.null_checkbox.isChecked() else "Not Null"
 
         if self.pk_checkbox.isChecked():
             pk_flag = "PK"
-            fk_table = "-"
-            fk_field = "-"
         elif self.fk_checkbox.isChecked():
             pk_flag = "FK"
-            fk_table = self.fk_table_combo.currentText()
-            fk_field = self.fk_field_combo.currentText()
         else:
             pk_flag = "-"
-            fk_table = "-"
-            fk_field = "-"
 
-        self.return_data = [field_name, type_value, isnull_value, pk_flag, fk_table, fk_field]
+        self.return_data = [field_name, type_value, isnull_value, pk_flag, "-", "-"]
         super().accept()
 
     def get_data(self):
+        return self.return_data
+
+    def get_full_data(self):
         return self.return_data
