@@ -286,8 +286,14 @@ class TableCard(QFrame):
                         if (row.field_data[0] == pk_name and 
                             (row.field_data[3] if len(row.field_data) > 3 else '') == pk_type):
                             new_pk = row
+                            # Restore connection count and update visuals without incrementing
                             row.connection_count = pk_field.connection_count
-                            row.add_connection()
+                            if row.connection_count > 0:
+                                field_type = row.field_data[3] if len(row.field_data) > 3 else ''
+                                if field_type == 'PK':
+                                    row.dot_label.setStyleSheet("color: #69a7ff; font-size: 10px; background: transparent;")
+                                elif field_type == 'FK':
+                                    row.dot_label.setStyleSheet("color: #FFD57F; font-size: 10px; background: transparent;")
                             break
                 
                 # If fk_field is from this card, find new reference
@@ -299,8 +305,14 @@ class TableCard(QFrame):
                         if (row.field_data[0] == fk_name and 
                             (row.field_data[3] if len(row.field_data) > 3 else '') == fk_type):
                             new_fk = row
+                            # Restore connection count and update visuals without incrementing
                             row.connection_count = fk_field.connection_count
-                            row.add_connection()
+                            if row.connection_count > 0:
+                                field_type = row.field_data[3] if len(row.field_data) > 3 else ''
+                                if field_type == 'PK':
+                                    row.dot_label.setStyleSheet("color: #69a7ff; font-size: 10px; background: transparent;")
+                                elif field_type == 'FK':
+                                    row.dot_label.setStyleSheet("color: #FFD57F; font-size: 10px; background: transparent;")
                             break
                 
                 updated_connections.append((new_pk, new_fk, relation))

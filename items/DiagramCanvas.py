@@ -65,34 +65,47 @@ class DiagramCanvas(QWidget):
         if len(valid_connections) != len(self.connections):
             self.connections = valid_connections
 
-        # Group connections by source field
+        # Group connections by source field AND by target field
         source_groups = {}
+        target_groups = {}
         for idx, (pk_field, fk_field, relation) in enumerate(self.connections):
             if pk_field not in source_groups:
                 source_groups[pk_field] = []
             source_groups[pk_field].append(idx)
+            
+            if fk_field not in target_groups:
+                target_groups[fk_field] = []
+            target_groups[fk_field].append(idx)
 
-        # Draw each connection with offset
+        # Draw each connection independently
         for idx, (pk_field, fk_field, relation) in enumerate(self.connections):
+            # Save painter state for clean drawing
+            painter.save()
+            
             start = self.get_field_center(pk_field, left=False)
             end = self.get_field_center(fk_field, left=True)
             
-            # Apply vertical offset if multiple connections from same source
-            source_group = source_groups[pk_field]
+            # Skip invalid coordinates
+            if start == (0, 0) or end == (0, 0):
+                painter.restore()
+                continue
+            
+            # Calculate control point offset for visual separation (not endpoint offset)
+            control_offset = 0
+            source_group = source_groups.get(pk_field, [idx])
             if len(source_group) > 1:
                 position_in_group = source_group.index(idx)
                 total_in_group = len(source_group)
-                # Spread connections: -spacing, 0, +spacing for 3 connections
-                vertical_offset = (position_in_group - (total_in_group - 1) / 2) * 25
-                start = (start[0], int(start[1] + vertical_offset))
-                end = (end[0], int(end[1] + vertical_offset))
+                # Offset control points, not endpoints - keeps curves attached to fields
+                control_offset = (position_in_group - (total_in_group - 1) / 2) * 40
             
-            # Use different colors for visual distinction
-            colors = ['#69a7ff', '#7FB3D5', '#95C9EB', '#AAD4F5']
-            color_idx = source_group.index(idx) % len(colors)
-            color = QColor(colors[color_idx])
+            # All connections use the same color for consistency
+            color = QColor('#69a7ff')
             
-            self.draw_connection_arrow(painter, start, end, color, relation)
+            self.draw_connection_arrow(painter, start, end, color, relation, control_offset)
+            
+            # Restore painter state
+            painter.restore()
 
         # Draw drag-preview line
         if self.drag_preview and self.is_dragging_connection:
@@ -105,7 +118,7 @@ class DiagramCanvas(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(QPointF(end[0], end[1]), 4, 4)
 
-    def draw_connection_arrow(self, painter, start, end, color, relation_type='one-to-many'):
+    def draw_connection_arrow(self, painter, start, end, color, relation_type='one-to-many', control_offset=0):
         painter.setPen(QPen(color, 2))
         start_point = QPointF(start[0], start[1])
         end_point = QPointF(end[0], end[1])
@@ -114,9 +127,21 @@ class DiagramCanvas(QWidget):
         path = QPainterPath(start_point)
 
         dx = end_point.x() - start_point.x()
-        offset = max(abs(dx) * 0.3, 40)
-        ctrl1 = QPointF(start_point.x() + offset, start_point.y())
-        ctrl2 = QPointF(end_point.x() - offset, end_point.y())
+        dy = end_point.y() - start_point.y()
+        
+        # Calculate horizontal offset based on distance
+        # Use a larger offset when tables are far apart
+        distance = math.sqrt(dx * dx + dy * dy)
+        horizontal_offset = max(min(abs(dx) * 0.5, distance * 0.4), 60)
+        
+        # For connections where target is to the left of source, adjust control points
+        if dx < 0:
+            # Target is to the left - curve needs to go around
+            horizontal_offset = max(abs(dx) * 0.3 + 80, 100)
+        
+        # Create control points for smooth bezier curve
+        ctrl1 = QPointF(start_point.x() + horizontal_offset, start_point.y() + control_offset)
+        ctrl2 = QPointF(end_point.x() - horizontal_offset, end_point.y() + control_offset)
 
         path.cubicTo(ctrl1, ctrl2, end_point)
         painter.drawPath(path)
@@ -126,14 +151,22 @@ class DiagramCanvas(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(start_point, 4, 4)
 
-        # Crow's foot for "many"
-        self.draw_crows_foot(painter, end_point, start_point, color)
+        # Crow's foot for "many" - use ctrl2 for correct curve tangent direction
+        self.draw_crows_foot(painter, end_point, ctrl2, color)
 
-    def draw_crows_foot(self, painter, end_point, start_point, color):
+    def draw_crows_foot(self, painter, end_point, ctrl2_point, color):
+        """Draw crow's foot using the curve's tangent direction at end point"""
         painter.setPen(QPen(color, 2))
-        dx = end_point.x() - start_point.x()
-        dy = end_point.y() - start_point.y()
-        angle = math.atan2(dy, dx)
+        
+        # Use control point 2 to get the actual curve direction at the end
+        dx = end_point.x() - ctrl2_point.x()
+        dy = end_point.y() - ctrl2_point.y()
+        
+        # Fallback to horizontal if control point is same as end
+        if abs(dx) < 1 and abs(dy) < 1:
+            angle = 0
+        else:
+            angle = math.atan2(dy, dx)
 
         foot_length = 12
         base_angle1 = angle + math.pi / 6

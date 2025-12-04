@@ -429,9 +429,9 @@ class TableDetailsPage(QWidget):
         self.scheme.setItem(row_index, 1, type_item)
         
         # Null indicator
-        null_item = QTableWidgetItem("●" if isnull_value == "Yes" else "")
+        null_item = QTableWidgetItem("●" if isnull_value == "Null" else "")
         null_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        if isnull_value == "Yes":
+        if isnull_value == "Null":
             null_item.setForeground(Qt.GlobalColor.green)
         self.scheme.setItem(row_index, 2, null_item)
 

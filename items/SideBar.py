@@ -73,6 +73,7 @@ class SideBar(QWidget):
             QPushButton { background-color: #E34A4A; color: white; font-size: 16px; font-weight: bold; border-radius: 8px; padding: 10px; margin: 0px 10px 10px 10px; min-height: 40px; }
             QPushButton:hover { background-color: #D33A3A; }
         """)
+        logout_button.clicked.connect(self.logout)
 
         sidebar_layout.addWidget(databases_text)
         sidebar_layout.addWidget(self.db_tree)
@@ -155,16 +156,22 @@ class SideBar(QWidget):
                 parent.removeChild(item)
 
                 # remove page from stacked widget
-            if table_name in self.page_map:
-                page, idx = self.page_map.pop(table_name)
+                if table_name in self.page_map:
+                    page, idx = self.page_map.pop(table_name)
 
-                # 1. Remove from stacked pages
-                widget = self.stacked_center.widget(idx)
-                self.stacked_center.removeWidget(widget)
-                widget.deleteLater()
+                    # 1. Remove from stacked pages
+                    widget = self.stacked_center.widget(idx)
+                    self.stacked_center.removeWidget(widget)
+                    widget.deleteLater()
 
-                # 2. Remove from DiagramPage
-                diagram_page = self.stacked_center.widget(0)
-                diagram_page.remove_table_card(table_name)
+                    # 2. Remove from DiagramPage
+                    diagram_page = self.stacked_center.widget(0)
+                    diagram_page.remove_table_card(table_name)
 
-                print(f"Table '{table_name}' deleted.")
+                    print(f"Table '{table_name}' deleted.")
+
+    def logout(self):
+        """Trigger logout by finding the main window and calling its log_out method"""
+        main_window = self.window()
+        if hasattr(main_window, 'log_out'):
+            main_window.log_out()
