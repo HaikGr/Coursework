@@ -72,21 +72,6 @@ class Toolbar(QFrame):
         toolbar_layout.setContentsMargins(12, 6, 12, 6)
         toolbar_layout.setSpacing(8)
         
-        # Left section - File operations
-        new_btn = self._create_tool_btn("📄", "New")
-        open_btn = self._create_tool_btn("📂", "Open")
-        save_btn = self._create_tool_btn("💾", "Save")
-        
-        toolbar_layout.addWidget(new_btn)
-        toolbar_layout.addWidget(open_btn)
-        toolbar_layout.addWidget(save_btn)
-        
-        # Separator
-        sep1 = QFrame()
-        sep1.setFixedWidth(1)
-        sep1.setStyleSheet("background-color: #cbd5e1;")
-        toolbar_layout.addWidget(sep1)
-        
         # Aggregate Functions Section
         agg_label = QLabel("AGGREGATE\nFUNCTIONS")
         agg_label.setStyleSheet("""
@@ -106,70 +91,9 @@ class Toolbar(QFrame):
             toolbar_layout.addWidget(btn)
             self.agg_buttons[name] = btn
         
-        # Separator
-        sep2 = QFrame()
-        sep2.setFixedWidth(1)
-        sep2.setStyleSheet("background-color: #cbd5e1;")
-        toolbar_layout.addWidget(sep2)
-        
-        # Search button
-        search_btn = QPushButton("🔍")
-        search_btn.setFixedSize(30, 28)
-        search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        search_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f8fafc;
-                color: #64748b;
-                border: 1px solid #cbd5e1;
-                border-radius: 5px;
-                font-size: 14px;
-            }
-            QPushButton:hover { background-color: #e2e8f0; }
-        """)
-        toolbar_layout.addWidget(search_btn)
-        
         toolbar_layout.addStretch()
         
-        # Right section - Run Query
-        run_btn = QPushButton("▶ Run Query")
-        run_btn.setFixedHeight(28)
-        run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        run_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #22c55e;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                font-size: 11px;
-                font-weight: 600;
-                padding: 4px 14px;
-            }
-            QPushButton:hover {
-                background-color: #16a34a;
-            }
-        """)
-        toolbar_layout.addWidget(run_btn)
-        
         self.current_aggregate = None
-    
-    def _create_tool_btn(self, icon, text):
-        btn = QPushButton(f"{icon} {text}")
-        btn.setFixedHeight(28)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #475569;
-                border: none;
-                border-radius: 5px;
-                font-size: 11px;
-                padding: 4px 10px;
-            }
-            QPushButton:hover {
-                background-color: #e2e8f0;
-            }
-        """)
-        return btn
     
     def _on_aggregate_clicked(self, agg_name, btn):
         if self.current_aggregate == agg_name:

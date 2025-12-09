@@ -1,36 +1,38 @@
-import sys
+"""
+Sign Up Window - Original Blue Theme with Smooth Transitions
+"""
+
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QCheckBox
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton,
+    QGraphicsDropShadowEffect
 )
-from PyQt6.QtGui import QIcon, QColor, QPainter, QPixmap
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QSize, QTimer
 
 import animatedbackground as ab
+from windowtransitions import WindowTransition
 
-# ---------------------------
-# Sign Up Window
-# ---------------------------
+
 class SignUpWindow(QMainWindow):
     def __init__(self, parent_window, geometry):
         super().__init__()
         self.setWindowTitle("Database Management")
         self.setStyleSheet("background-color: #3B82F6;")
         self.parent_window = parent_window
-        self.savedgeomety = geometry
-        self.restoreGeometry(self.savedgeomety)
-
-        central = QWidget()
-        self.setCentralWidget(central)
-
+        self.saved_geometry = geometry
+        if geometry:
+            try:
+                self.restoreGeometry(geometry)
+            except Exception:
+                pass
+        self.setMinimumSize(1200, 700)
 
         # Animated background as central widget
         self.animated_bg = ab.AnimatedBackground(self)
         self.setCentralWidget(self.animated_bg)
 
-        # Content container sits on top of animated background
+        # Content container
         self.content_container = QWidget(self.animated_bg)
         self.content_container.setStyleSheet("background-color: transparent;")
 
@@ -38,9 +40,7 @@ class SignUpWindow(QMainWindow):
         container_layout.setContentsMargins(60, 60, 60, 60)
         container_layout.setSpacing(50)
 
-        main_layout = QHBoxLayout(central)
-
-        # ===== Left side (Title & Features) =====
+        # Left side
         left = QVBoxLayout()
         left.setContentsMargins(0, 160, 0, 0)
         left.setSpacing(25)
@@ -65,6 +65,7 @@ class SignUpWindow(QMainWindow):
         left.addStretch()
         container_layout.addLayout(left, stretch=2)
 
+        # Card
         card = QWidget()
         card.setFixedWidth(380)
         card.setFixedHeight(600)
@@ -79,9 +80,8 @@ class SignUpWindow(QMainWindow):
 
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(25, 25, 25, 25)
-        # card_layout.setSpacing(20)
 
-        #Heading Field
+        # Heading
         heading = QLabel("Connect Database")
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heading.setStyleSheet("font-size: 32px; color: #4B5563; margin-bottom: 20px; font-weight: bold;")
@@ -89,153 +89,89 @@ class SignUpWindow(QMainWindow):
         card_layout.addWidget(heading)
         card_layout.addSpacing(-25)
 
-        # Text Field
+        # Text
         databasetext = QLabel("Enter your database connection details")
         databasetext.setStyleSheet("font-size: 15px; color: #838b99;")
         databasetext.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card_layout.addWidget(databasetext)
         card_layout.addSpacing(5)
 
+        input_style = """
+            QLineEdit {
+                background: white;
+                border: 2px solid transparent;
+                border-radius: 24px;
+                padding: 12px 20px;
+                font-size: 16px;
+                color: #4B5563;
+            }
+            QLineEdit:focus { border: 2px solid #93B9E8; }
+        """
+
         # Username
         self.username = QLineEdit()
         self.username.setPlaceholderText("Username")
-        self.username.setStyleSheet("""
-            QLineEdit {
-                background: white;
-                border: 2px solid transparent;
-                border-radius: 24px;
-                padding: 12px 20px;
-                font-size: 16px;
-                color: #4B5563;
-            }
-            QLineEdit:focus { border: 2px solid #93B9E8; }
-        """)
+        self.username.setStyleSheet(input_style)
         card_layout.addWidget(self.username)
 
-        # ----------------------
-        # First Password (User Password)
-        # ----------------------
-        self.password = QLineEdit()
+        # Password with toggle
+        password_container = QWidget()
+        password_container.setFixedHeight(50)
+        password_container.setStyleSheet("background: transparent;")
+
+        self.password = QLineEdit(password_container)
+        self.password.setGeometry(0, 0, 320, 50)
         self.password.setPlaceholderText("Password")
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password.setStyleSheet("""
-            QLineEdit {
-                background: white;
-                border: 2px solid transparent;
-                border-radius: 24px;
-                padding: 12px 20px;
-                font-size: 16px;
-                color: #4B5563;
-            }
-            QLineEdit:focus { border: 2px solid #93B9E8; }
-        """)
+        self.password.setStyleSheet(input_style)
 
-        pwd_container = QWidget()
-        pwd_layout = QHBoxLayout(pwd_container)
-        pwd_layout.setContentsMargins(0, 0, 0, 0)
-
-        pwd_layout.addWidget(self.password)
-
-        self.password_btn = QPushButton()
-        self.password_btn.setFixedSize(36, 36)
+        self.password_btn = QPushButton(password_container)
+        self.password_btn.setGeometry(270, 8, 34, 34)
         self.password_btn.setIcon(ab.svg_icon(ab.EYE_CLOSED))
         self.password_btn.setIconSize(QSize(22, 22))
         self.password_btn.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding-right: 10px;
-            }
+            QPushButton { color: black; border: none; background: transparent; }
         """)
         self.password_btn.clicked.connect(self.toggle_password_main)
+        card_layout.addWidget(password_container)
 
-        pwd_layout.addWidget(self.password_btn)
-        card_layout.addWidget(pwd_container)
-
-        # host
+        # Host
         self.host = QLineEdit()
         self.host.setPlaceholderText("Host (e.g., localhost)")
-        self.host.setStyleSheet("""
-            QLineEdit {
-                background: white;
-                border: 2px solid transparent;
-                border-radius: 24px;
-                padding: 12px 20px;
-                font-size: 16px;
-                color: #4B5563;
-            }
-            QLineEdit:focus { border: 2px solid #93B9E8; }
-        """)
+        self.host.setStyleSheet(input_style)
         card_layout.addWidget(self.host)
 
-        # Port Field
+        # Port
         self.port = QLineEdit()
         self.port.setPlaceholderText("Port (e.g., 5432)")
-        self.port.setStyleSheet("""
-            QLineEdit {
-                background: white;
-                border: 2px solid transparent;
-                border-radius: 24px;
-                padding: 12px 20px;
-                font-size: 16px;
-                color: #4B5563;
-            }
-            QLineEdit:focus { border: 2px solid #93B9E8; }
-        """)  
-        card_layout.addWidget(self.port)    
+        self.port.setStyleSheet(input_style)
+        card_layout.addWidget(self.port)
 
         # Database Name
         self.databasename = QLineEdit()
         self.databasename.setPlaceholderText("Database Name")
-        self.databasename.setStyleSheet("""
-            QLineEdit {
-                background: white;
-                border: 2px solid transparent;
-                border-radius: 24px;
-                padding: 12px 20px;
-                font-size: 16px;
-                color: #4B5563;
-            }
-            QLineEdit:focus { border: 2px solid #93B9E8; }
-        """)            
+        self.databasename.setStyleSheet(input_style)
         card_layout.addWidget(self.databasename)
 
-        # Password with toggle
-        self.db_password = QLineEdit()
+        # Database Password with toggle
+        db_pwd_container = QWidget()
+        db_pwd_container.setFixedHeight(50)
+        db_pwd_container.setStyleSheet("background: transparent;")
+
+        self.db_password = QLineEdit(db_pwd_container)
+        self.db_password.setGeometry(0, 0, 320, 50)
         self.db_password.setPlaceholderText("Database Password")
         self.db_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.db_password.setStyleSheet("""
-            QLineEdit {
-                background: white;
-                border: 2px solid transparent;
-                border-radius: 24px;
-                padding: 12px 20px;
-                font-size: 16px;
-                color: #4B5563;
-            }
-            QLineEdit:focus { border: 2px solid #93B9E8; }
-        """)
+        self.db_password.setStyleSheet(input_style)
 
-        db_pwd_container = QWidget()
-        db_pwd_layout = QHBoxLayout(db_pwd_container)
-        db_pwd_layout.setContentsMargins(0, 0, 0, 0)
-
-        db_pwd_layout.addWidget(self.db_password)
-
-        self.db_password_btn = QPushButton()
-        self.db_password_btn.setFixedSize(36, 36)
+        self.db_password_btn = QPushButton(db_pwd_container)
+        self.db_password_btn.setGeometry(270, 8, 34, 34)
         self.db_password_btn.setIcon(ab.svg_icon(ab.EYE_CLOSED))
         self.db_password_btn.setIconSize(QSize(22, 22))
         self.db_password_btn.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding-right: 10px;
-            }
+            QPushButton { color: black; border: none; background: transparent; }
         """)
         self.db_password_btn.clicked.connect(self.toggle_password_db)
-
-        db_pwd_layout.addWidget(self.db_password_btn)
         card_layout.addWidget(db_pwd_container)
 
         # Circle Connect button
@@ -243,9 +179,6 @@ class SignUpWindow(QMainWindow):
         connect_btn.setFixedSize(120, 120)
         connect_btn.setStyleSheet("""
             QPushButton {
-                background-color: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #93B9E8, stop:1 #7BA3D0);
                 background-color: #3479f3;
                 color: white;
                 font-size: 18px;
@@ -264,14 +197,21 @@ class SignUpWindow(QMainWindow):
         card_layout.addSpacing(-15)
 
         container_layout.addWidget(card, stretch=1)
-        main_layout.setContentsMargins(40, 20, 100, 100)
 
-        # Make content_container fill the animated background
+        # Main layout
         main_layout = QVBoxLayout(self.animated_bg)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.content_container)
 
-    # methods
+        self._first_show = True
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._first_show:
+            self._first_show = False
+            self.setWindowOpacity(0.0)
+            QTimer.singleShot(50, lambda: WindowTransition.fade_in(self, duration=350))
+
     def toggle_password_main(self):
         if self.password.echoMode() == QLineEdit.EchoMode.Password:
             self.password.setEchoMode(QLineEdit.EchoMode.Normal)
@@ -289,7 +229,7 @@ class SignUpWindow(QMainWindow):
             self.db_password_btn.setIcon(ab.svg_icon(ab.EYE_CLOSED))
 
     def go_back(self):
-        """Hides this window and re-shows the parent Sign In window."""
         if self.parent_window:
-            self.parent_window.show()
-        self.hide()
+            WindowTransition.cross_fade(self, self.parent_window, duration=450)
+        else:
+            self.close()

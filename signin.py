@@ -1,27 +1,25 @@
+"""
+Sign In Window - Original Blue Theme with Smooth Transitions
+"""
+
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QCheckBox, QMessageBox,
+    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QCheckBox, QMessageBox,
     QGraphicsDropShadowEffect
 )
-from PyQt6.QtGui import QColor, QIcon, QPixmap
-from PyQt6.QtCore import Qt, QByteArray, QSize
+from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, QSize, QTimer
 
-# Other Windows
 from signup import SignUpWindow
 from dashboard import DashboardWindow
-# Utilities
+from forgotpassword import ForgotPasswordWindow
 import animatedbackground as ab
+from windowtransitions import WindowTransition
 
-
-# ---------------------------
-# Sign In Window
-# ---------------------------
 
 class SignInWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        # self.setFixedSize(1200, 700)
         self.setWindowTitle("Database Management")
         self.setStyleSheet("background-color: #3B82F6;")
         self.setMinimumSize(1200, 700)
@@ -30,7 +28,7 @@ class SignInWindow(QMainWindow):
         self.animated_bg = ab.AnimatedBackground(self)
         self.setCentralWidget(self.animated_bg)
 
-        # Content container sits on top of animated background
+        # Content container
         self.content_container = QWidget(self.animated_bg)
         self.content_container.setStyleSheet("background-color: transparent;")
 
@@ -38,7 +36,7 @@ class SignInWindow(QMainWindow):
         container_layout.setContentsMargins(60, 60, 60, 60)
         container_layout.setSpacing(50)
 
-        # ----- Left info -----
+        # Left info
         left = QVBoxLayout()
         left.setContentsMargins(0, 160, 0, 0)
         left.setSpacing(25)
@@ -63,7 +61,7 @@ class SignInWindow(QMainWindow):
         left.addStretch()
         container_layout.addLayout(left, stretch=2)
 
-        # ----- Right Sign In Card -----
+        # Right Sign In Card
         card = QWidget()
         card.setFixedSize(380, 600)
         card.setStyleSheet("background-color: #C5D9F5; border-radius: 40px;")
@@ -83,6 +81,7 @@ class SignInWindow(QMainWindow):
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heading.setStyleSheet("font-size: 40px; color: #4B5563; font-weight: bold;")
         card_layout.addWidget(heading)
+        
         plain_text = QLabel("Sign in to continue to your database")
         plain_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         plain_text.setStyleSheet("font-size: 15px; color: #838b99;")
@@ -91,8 +90,7 @@ class SignInWindow(QMainWindow):
         # Username
         self.username = QLineEdit()
         self.username.setPlaceholderText("Username or Email")
-        self.username.setStyleSheet(
-            """
+        self.username.setStyleSheet("""
             QLineEdit {
                 background: white;
                 border: 2px solid transparent;
@@ -102,8 +100,7 @@ class SignInWindow(QMainWindow):
                 color: #4B5563;
             }
             QLineEdit:focus { border: 2px solid #93B9E8; }
-            """
-        )
+        """)
         card_layout.addWidget(self.username)
         
         # Password Layout
@@ -112,7 +109,7 @@ class SignInWindow(QMainWindow):
         password_container.setStyleSheet("background: transparent;")
 
         self.password = QLineEdit(password_container)
-        self.password.setGeometry(0, 0, 320, 50)   # width adjusts inside card
+        self.password.setGeometry(0, 0, 320, 50)
         self.password.setPlaceholderText("Password")
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
         self.password.setStyleSheet("""
@@ -124,13 +121,11 @@ class SignInWindow(QMainWindow):
                 font-size: 16px;
                 color: #4B5563;
             }
-            QLineEdit:focus {
-                border: 2px solid #93B9E8;
-            }
+            QLineEdit:focus { border: 2px solid #93B9E8; }
         """)
 
         self.toggle_btn = QPushButton(password_container)
-        self.toggle_btn.setGeometry(270, 8, 34, 34)  # <--- POSITIONED ON TOP
+        self.toggle_btn.setGeometry(270, 8, 34, 34)
         self.toggle_btn.setIcon(ab.svg_icon(ab.EYE_CLOSED))
         self.toggle_btn.setIconSize(QSize(22, 22))
         self.toggle_btn.setStyleSheet("""
@@ -141,8 +136,6 @@ class SignInWindow(QMainWindow):
             }
         """)
         self.toggle_btn.clicked.connect(self.toggle_password)
-
-        # Add widgets
         card_layout.addWidget(password_container)
 
         # Remember + Forgot
@@ -152,6 +145,7 @@ class SignInWindow(QMainWindow):
         self.remember.setStyleSheet("color: #8691a0; font-size: 14px;")
         forgot = QPushButton("Forgot password?")
         forgot.setStyleSheet("color: #3B82F6; background: transparent; border: none;")
+        forgot.clicked.connect(self.open_forgot_password)
         remember_layout.addWidget(self.remember)
         remember_layout.addStretch()
         remember_layout.addWidget(forgot)
@@ -161,8 +155,7 @@ class SignInWindow(QMainWindow):
         # Connect button
         connect_btn = QPushButton("Connect")
         connect_btn.setFixedSize(120, 120)
-        connect_btn.setStyleSheet(
-            """
+        connect_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3479f3;
                 color: white;
@@ -170,15 +163,12 @@ class SignInWindow(QMainWindow):
                 border-radius: 60px;
                 font-weight: bold;
             }
-            QPushButton:hover { 
-                background-color: #7BA3D0;
-            }
-            """
-        )
+            QPushButton:hover { background-color: #7BA3D0; }
+        """)
         connect_btn.clicked.connect(self.attempt_signin)
         card_layout.addWidget(connect_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # SignUp row (LEFT + RIGHT)
+        # SignUp row
         signup_row = QHBoxLayout()
         lbl = QLabel("Don't have an account?")
         lbl.setStyleSheet("color:#4B5563; font-size:14px;")
@@ -190,14 +180,11 @@ class SignInWindow(QMainWindow):
         signup_btn.clicked.connect(self.switch_to_signup)
         signup_row.addWidget(signup_btn)
         signup_row.addStretch()
-        signup_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
         card_layout.addLayout(signup_row)
-
 
         container_layout.addWidget(card, stretch=1)
 
-        # Make content_container fill the animated background
+        # Main layout
         main_layout = QVBoxLayout(self.animated_bg)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(self.content_container)
@@ -205,10 +192,16 @@ class SignInWindow(QMainWindow):
         # Windows
         self.dashboard_window = None
         self.signup_window = None
+        self.forgot_password_window = None
+        self._first_show = True
 
-    # ------------------------
-    # Methods
-    # ------------------------
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._first_show:
+            self._first_show = False
+            self.setWindowOpacity(0.0)
+            QTimer.singleShot(50, lambda: WindowTransition.fade_in(self, duration=400))
+
     def toggle_password(self):
         if self.password.echoMode() == QLineEdit.EchoMode.Password:
             self.password.setEchoMode(QLineEdit.EchoMode.Normal)
@@ -217,10 +210,13 @@ class SignInWindow(QMainWindow):
             self.password.setEchoMode(QLineEdit.EchoMode.Password)
             self.toggle_btn.setIcon(ab.svg_icon(ab.EYE_CLOSED))
 
-    def switch_to_signup(self, checked=False):
+    def switch_to_signup(self):
         self.signup_window = SignUpWindow(self, self.saveGeometry())
-        self.signup_window.show()
-        self.hide()
+        WindowTransition.cross_fade(self, self.signup_window, duration=450)
+
+    def open_forgot_password(self):
+        self.forgot_password_window = ForgotPasswordWindow(self, self.saveGeometry())
+        WindowTransition.cross_fade(self, self.forgot_password_window, duration=450)
 
     def attempt_signin(self):
         username = self.username.text().strip()
@@ -233,6 +229,4 @@ class SignInWindow(QMainWindow):
             msg.exec()
             return
         self.dashboard_window = DashboardWindow(username, self, self.saveGeometry())
-        self.dashboard_window.show()
-        self.hide()
-    
+        WindowTransition.cross_fade(self, self.dashboard_window, duration=450)

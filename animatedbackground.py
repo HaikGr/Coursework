@@ -1,19 +1,15 @@
+"""
+Animated Background Module - Original Blue Theme
+"""
+
 import random
 import math
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget,
-    QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QCheckBox, QMessageBox,
-    QGraphicsDropShadowEffect
-)
+from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QIcon, QPixmap
-from PyQt6.QtCore import (
-    Qt, QPropertyAnimation, QEasingCurve, QByteArray, QTimer, QPointF
-)
+from PyQt6.QtCore import Qt, QByteArray, QTimer, QPointF
 
 EYE_CLOSED = """
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none"
-xmlns="http://www.w3.org/2000/svg">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M12 5C7 5 2.73 8.11 1 12C2.73 15.89 7 19 12 19C17 19 21.27 15.89 23 12C21.27 8.11 17 5 12 5Z"
 stroke="#c2c7ce" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M12 15.5C13.933 15.5 15.5 13.933 15.5 12C15.5 10.067 13.933 8.5 12 8.5C10.067 8.5 8.5 10.067 8.5 12C8.5 13.933 10.067 15.5 12 15.5Z"
@@ -22,8 +18,7 @@ stroke="#c2c7ce" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
 """
 
 EYE_OPEN = """
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none"
-xmlns="http://www.w3.org/2000/svg">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M12 5C7 5 2.73 8.11 1 12C2.73 15.89 7 19 12 19C17 19 21.27 15.89 23 12C21.27 8.11 17 5 12 5Z"
 stroke="#374151" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M12 15.5C13.933 15.5 15.5 13.933 15.5 12C15.5 10.067 13.933 8.5 12 8.5C10.067 8.5 8.5 10.067 8.5 12C8.5 13.933 10.067 15.5 12 15.5Z"
@@ -38,9 +33,7 @@ def svg_icon(svg: str) -> QIcon:
     pix.loadFromData(data, "SVG")
     return QIcon(pix)
 
-# ---------------------------
-# Star + Animated Background
-# ---------------------------
+
 class Star:
     """Represents a single star particle."""
     def __init__(self, width, height):
@@ -48,7 +41,7 @@ class Star:
         self.y = random.uniform(0, height)
         self.z = random.uniform(0.1, 1.0)
         self.size = 2 + (1 - self.z) * 4
-        self.speed = (1.0 + (1 - self.z) * 1.5)/5
+        self.speed = (1.0 + (1 - self.z) * 1.5) / 5
         angle = random.uniform(0, 2 * math.pi)
         self.vx = math.cos(angle) * self.speed
         self.vy = math.sin(angle) * self.speed
@@ -84,7 +77,7 @@ class AnimatedBackground(QWidget):
         self._initialize_stars()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_animation)
-        self.timer.start(16)  # ~60 FPS
+        self.timer.start(16)
 
     def _initialize_stars(self):
         for _ in range(self.num_stars):
@@ -101,7 +94,7 @@ class AnimatedBackground(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Background
+        # Blue background
         painter.fillRect(event.rect(), QColor("#3B82F6"))
 
         # Draw stars

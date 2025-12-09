@@ -13,7 +13,7 @@ class ConditionPopup(QWidget):
         super().__init__(parent, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
         self.table_name = table_name
         self.field_name = field_name
-        self.setFixedSize(200, 70)
+        self.setFixedSize(250, 120)
         
         self.setStyleSheet("""
             QWidget {
