@@ -22,6 +22,9 @@ class DiagramPage(QWidget):
         # Connect toolbar aggregate selection to SQL builder
         if self.sql_builder:
             self.toolbar.aggregate_selected.connect(self.sql_builder.set_aggregate)
+            # Connect SQL builder signals for field sync
+            self.sql_builder.field_removed.connect(self._on_field_removed_from_query)
+            self.sql_builder.fields_cleared.connect(self._on_all_fields_cleared)
 
         # Canvas
         self.table_area = DiagramCanvas()
@@ -99,7 +102,21 @@ class DiagramPage(QWidget):
     def _on_field_selected_for_query(self, table_name, field_name, field_type):
         """Handle field selection for query building (triggered by RIGHT-CLICK)"""
         if self.sql_builder:
-            self.sql_builder.add_field(table_name, field_name, field_type)
+            # Toggle field - add if not present, remove if present
+            was_added = self.sql_builder.toggle_field(table_name, field_name, field_type)
+            
+            # Find the field row and sync its visual state
+            if table_name in self.cards:
+                card = self.cards[table_name]
+                all_rows = []
+                all_rows.extend(getattr(card, 'pk_rows', []))
+                all_rows.extend(getattr(card, 'fk_rows', []))
+                all_rows.extend(getattr(card, 'main_rows', []))
+                
+                for row in all_rows:
+                    if row.field_data[0] == field_name:
+                        row.set_query_selection(was_added)
+                        break
 
     def _on_condition_added(self, table_name, field_name, condition):
         """Handle WHERE condition added from field hover popup"""
@@ -108,6 +125,31 @@ class DiagramPage(QWidget):
             self.sql_builder.add_field(table_name, field_name, "")
             # Then add the condition
             self.sql_builder.add_condition(table_name, field_name, condition)
+
+    def _on_field_removed_from_query(self, table_name, field_name):
+        """Handle field removed from SQL builder - sync field row visual state"""
+        if table_name in self.cards:
+            card = self.cards[table_name]
+            all_rows = []
+            all_rows.extend(getattr(card, 'pk_rows', []))
+            all_rows.extend(getattr(card, 'fk_rows', []))
+            all_rows.extend(getattr(card, 'main_rows', []))
+            
+            for row in all_rows:
+                if row.field_data[0] == field_name:
+                    row.set_query_selection(False)
+                    break
+
+    def _on_all_fields_cleared(self):
+        """Handle all fields cleared from SQL builder - reset all field row visuals"""
+        for table_name, card in self.cards.items():
+            all_rows = []
+            all_rows.extend(getattr(card, 'pk_rows', []))
+            all_rows.extend(getattr(card, 'fk_rows', []))
+            all_rows.extend(getattr(card, 'main_rows', []))
+            
+            for row in all_rows:
+                row.set_query_selection(False)
 
     def remove_field_from_card(self, table_name, columns):
         """Remove fields from a card"""

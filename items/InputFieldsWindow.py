@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDialog, 
-    QPushButton, QComboBox, QCheckBox, QSpinBox
+    QPushButton, QComboBox, QCheckBox
 )
 from PyQt6.QtCore import Qt
 
@@ -9,7 +9,7 @@ class InputFieldsWindow(QDialog):
     def __init__(self, types_list=None, table_names=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Field")
-        self.setFixedSize(360, 380)
+        self.setFixedSize(360, 600)
         self.setModal(True)
         self.return_data = None
 
@@ -74,22 +74,6 @@ class InputFieldsWindow(QDialog):
                 selection-background-color: #3b82f6;
                 border: 1px solid #475569;
             }
-            QSpinBox {
-                background-color: #334155;
-                color: #f1f5f9;
-                border: 2px solid #475569;
-                border-radius: 8px;
-                padding: 12px 14px;
-                font-size: 14px;
-            }
-            QSpinBox:focus {
-                border: 2px solid #3b82f6;
-            }
-            QSpinBox:disabled {
-                background-color: #1e293b;
-                color: #64748b;
-                border: 2px solid #334155;
-            }
             QCheckBox {
                 color: #e2e8f0;
                 font-size: 14px;
@@ -140,21 +124,8 @@ class InputFieldsWindow(QDialog):
         type_col.addWidget(type_label)
         self.type_combo = QComboBox()
         self.type_combo.addItems(types_list)
-        self.type_combo.currentTextChanged.connect(self._on_type_changed)
         type_col.addWidget(self.type_combo)
         type_row.addLayout(type_col)
-        
-        length_col = QVBoxLayout()
-        length_label = QLabel("Size")
-        length_col.addWidget(length_label)
-        self.length_spin = QSpinBox()
-        self.length_spin.setRange(0, 8000)
-        self.length_spin.setValue(0)
-        self.length_spin.setSpecialValueText("Auto")
-        self.length_spin.setEnabled(False)
-        self.length_spin.setFixedWidth(100)
-        length_col.addWidget(self.length_spin)
-        type_row.addLayout(length_col)
         
         layout.addLayout(type_row)
 
@@ -237,18 +208,6 @@ class InputFieldsWindow(QDialog):
         btn_row.addWidget(add_btn)
         layout.addLayout(btn_row)
 
-    def _on_type_changed(self, type_text):
-        type_lower = type_text.lower()
-        needs_length = any(t in type_lower for t in ['char', 'varchar', 'nchar', 'nvarchar', 'binary', 'varbinary'])
-        self.length_spin.setEnabled(needs_length)
-        if needs_length:
-            if 'varchar' in type_lower:
-                self.length_spin.setValue(255)
-            else:
-                self.length_spin.setValue(50)
-        else:
-            self.length_spin.setValue(0)
-
     def _on_auto_changed(self):
         if self.auto_checkbox.isChecked():
             self.null_checkbox.setChecked(False)
@@ -293,8 +252,6 @@ class InputFieldsWindow(QDialog):
             return
 
         type_value = self.type_combo.currentText()
-        if self.length_spin.isEnabled() and self.length_spin.value() > 0:
-            type_value = f"{type_value}({self.length_spin.value()})"
 
         isnull_value = "Null" if self.null_checkbox.isChecked() else "Not Null"
 

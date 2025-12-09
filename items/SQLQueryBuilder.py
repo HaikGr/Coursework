@@ -58,7 +58,7 @@ class SQLHighlighter(QSyntaxHighlighter):
 
 
 class SelectedFieldTag(QFrame):
-    """A tag widget showing a selected field"""
+    """A compact tag widget showing a selected field"""
     removed = pyqtSignal(object)
     group_by_toggled = pyqtSignal(object)
     order_by_toggled = pyqtSignal(object, str)  # tag, direction (ASC/DESC/None)
@@ -74,49 +74,52 @@ class SelectedFieldTag(QFrame):
         self.setStyleSheet("""
             QFrame {
                 background-color: #1e293b;
-                border-radius: 8px;
+                border-radius: 6px;
                 border: 1px solid #334155;
             }
         """)
-        self.setFixedHeight(40)
+        self.setFixedHeight(34)  # More compact
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 6, 8, 6)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 4, 6, 4)
+        layout.setSpacing(4)
 
         # Field label
         self.field_text = QLabel(f"{table_name}.<b>{field_name}</b>")
-        self.field_text.setStyleSheet("color: #e2e8f0; font-size: 12px; background: transparent;")
+        self.field_text.setStyleSheet("color: #e2e8f0; font-size: 11px; background: transparent;")
         layout.addWidget(self.field_text)
         layout.addStretch()
 
         # GROUP BY button
-        self.group_btn = QPushButton("GROUP BY")
-        self.group_btn.setFixedSize(65, 22)
+        self.group_btn = QPushButton("GRP")
+        self.group_btn.setFixedSize(32, 20)
         self.group_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.group_btn.setToolTip("Toggle GROUP BY")
         self._update_group_style()
         self.group_btn.clicked.connect(self.toggle_group_by)
         layout.addWidget(self.group_btn)
 
         # ORDER BY button
         self.order_btn = QPushButton("↕")
-        self.order_btn.setFixedSize(24, 22)
+        self.order_btn.setFixedSize(20, 20)
         self.order_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.order_btn.setToolTip("Toggle ORDER BY (ASC/DESC)")
         self._update_order_style()
         self.order_btn.clicked.connect(self.toggle_order_by)
         layout.addWidget(self.order_btn)
 
         # Remove button
         remove_btn = QPushButton("×")
-        remove_btn.setFixedSize(22, 22)
+        remove_btn.setFixedSize(20, 20)
         remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        remove_btn.setToolTip("Remove field")
         remove_btn.setStyleSheet("""
             QPushButton {
                 background-color: #7f1d1d;
                 color: #fca5a5;
                 border: none;
                 border-radius: 4px;
-                font-size: 14px;
+                font-size: 12px;
                 font-weight: bold;
             }
             QPushButton:hover {
@@ -133,8 +136,8 @@ class SelectedFieldTag(QFrame):
                     background-color: #22c55e;
                     color: #052e16;
                     border: none;
-                    border-radius: 4px;
-                    font-size: 8px;
+                    border-radius: 3px;
+                    font-size: 9px;
                     font-weight: 700;
                 }
                 QPushButton:hover { background-color: #16a34a; }
@@ -145,8 +148,8 @@ class SelectedFieldTag(QFrame):
                     background-color: #334155;
                     color: #94a3b8;
                     border: none;
-                    border-radius: 4px;
-                    font-size: 8px;
+                    border-radius: 3px;
+                    font-size: 9px;
                     font-weight: 600;
                 }
                 QPushButton:hover { background-color: #475569; }
@@ -160,8 +163,8 @@ class SelectedFieldTag(QFrame):
                     background-color: #f59e0b;
                     color: #451a03;
                     border: none;
-                    border-radius: 4px;
-                    font-size: 12px;
+                    border-radius: 3px;
+                    font-size: 11px;
                     font-weight: bold;
                 }
                 QPushButton:hover { background-color: #d97706; }
@@ -173,8 +176,8 @@ class SelectedFieldTag(QFrame):
                     background-color: #ef4444;
                     color: white;
                     border: none;
-                    border-radius: 4px;
-                    font-size: 12px;
+                    border-radius: 3px;
+                    font-size: 11px;
                     font-weight: bold;
                 }
                 QPushButton:hover { background-color: #dc2626; }
@@ -186,8 +189,8 @@ class SelectedFieldTag(QFrame):
                     background-color: #334155;
                     color: #94a3b8;
                     border: none;
-                    border-radius: 4px;
-                    font-size: 12px;
+                    border-radius: 3px;
+                    font-size: 11px;
                 }
                 QPushButton:hover { background-color: #475569; }
             """)
@@ -218,6 +221,10 @@ class SelectedFieldTag(QFrame):
 
 
 class SQLQueryBuilder(QWidget):
+    # Signal emitted when a field is removed (for syncing with FieldRow visuals)
+    field_removed = pyqtSignal(str, str)  # table_name, field_name
+    fields_cleared = pyqtSignal()  # Emitted when all fields are cleared
+    
     def __init__(self):
         super().__init__()
         self.selected_fields = []
@@ -310,9 +317,6 @@ class SQLQueryBuilder(QWidget):
         fields_header_layout.setContentsMargins(0, 4, 0, 4)
         fields_header_layout.setSpacing(6)
 
-        fields_icon = QLabel("⚡")
-        fields_icon.setStyleSheet("color: #fbbf24; font-size: 12px; background: transparent;")
-        fields_header_layout.addWidget(fields_icon)
 
         self.fields_count_label = QLabel("Selected Fields (0)")
         self.fields_count_label.setStyleSheet("color: #fbbf24; font-size: 11px; font-weight: 700; background: transparent;")
@@ -337,17 +341,41 @@ class SQLQueryBuilder(QWidget):
 
         content_layout.addWidget(fields_header)
 
-        # Field tags container (no scroll - items stack)
+        # Field tags container - scroll area for many fields
+        fields_scroll = QScrollArea()
+        fields_scroll.setWidgetResizable(True)
+        fields_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: #1e293b;
+                width: 6px;
+                border-radius: 3px;
+            }
+            QScrollBar::handle:vertical {
+                background: #475569;
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::add-line, QScrollBar::sub-line {
+                height: 0px;
+            }
+        """)
+        
         self.fields_container = QWidget()
         self.fields_container.setStyleSheet("background: transparent;")
         self.fields_layout = QVBoxLayout(self.fields_container)
         self.fields_layout.setContentsMargins(0, 0, 0, 0)
-        self.fields_layout.setSpacing(6)
-
-        content_layout.addWidget(self.fields_container, stretch=3)
+        self.fields_layout.setSpacing(4)  # Tight spacing between field tags
+        self.fields_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        
+        fields_scroll.setWidget(self.fields_container)
+        content_layout.addWidget(fields_scroll, stretch=3)
 
         # Copy button
-        copy_btn = QPushButton("📋 Copy Query")
+        copy_btn = QPushButton("Copy Query")
         copy_btn.setFixedHeight(34)
         copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         copy_btn.setStyleSheet("""
@@ -392,11 +420,84 @@ class SQLQueryBuilder(QWidget):
     def add_field(self, table_name, field_name, field_type):
         for tbl, fld, ftype in self.selected_fields:
             if tbl == table_name and fld == field_name:
-                return
+                return False  # Already exists
 
         self.selected_fields.append((table_name, field_name, field_type))
         self._add_field_tag(table_name, field_name)
         self._update_query()
+        return True  # Added successfully
+
+    def remove_field(self, table_name, field_name, emit_signal=True):
+        """Remove a field from the query"""
+        key = (table_name, field_name)
+        
+        # Check if field exists
+        found = False
+        for tbl, fld, ftype in self.selected_fields:
+            if tbl == table_name and fld == field_name:
+                found = True
+                break
+        
+        if not found:
+            return False
+        
+        # Remove from selected fields
+        self.selected_fields = [
+            (t, f, ft) for t, f, ft in self.selected_fields
+            if not (t == table_name and f == field_name)
+        ]
+        
+        # Remove from group by
+        if key in self.group_by_fields:
+            self.group_by_fields.remove(key)
+        
+        # Remove from order by
+        self.order_by_fields = [
+            (t, f, d) for t, f, d in self.order_by_fields 
+            if not (t == table_name and f == field_name)
+        ]
+        
+        # Remove condition
+        if key in self.where_conditions:
+            del self.where_conditions[key]
+        
+        # Remove tag widget
+        if key in self.field_tags:
+            tag = self.field_tags.pop(key)
+            self.fields_layout.removeWidget(tag)
+            tag.deleteLater()
+        
+        # Update count
+        count = len(self.selected_fields)
+        self.fields_count_label.setText(f"Selected Fields ({count})")
+        
+        self._update_query()
+        
+        # Emit signal to sync visual state
+        if emit_signal:
+            self.field_removed.emit(table_name, field_name)
+        
+        return True  # Removed successfully
+
+    def toggle_field(self, table_name, field_name, field_type):
+        """Toggle a field in the query - add if not present, remove if present"""
+        # Check if field exists
+        for tbl, fld, ftype in self.selected_fields:
+            if tbl == table_name and fld == field_name:
+                # Field exists, remove it
+                self.remove_field(table_name, field_name)
+                return False  # Field was removed
+        
+        # Field doesn't exist, add it
+        self.add_field(table_name, field_name, field_type)
+        return True  # Field was added
+
+    def is_field_selected(self, table_name, field_name):
+        """Check if a field is selected in the query"""
+        for tbl, fld, ftype in self.selected_fields:
+            if tbl == table_name and fld == field_name:
+                return True
+        return False
 
     def add_condition(self, table_name, field_name, condition):
         key = (table_name, field_name)
@@ -420,15 +521,18 @@ class SQLQueryBuilder(QWidget):
         self.fields_count_label.setText(f"Selected Fields ({count})")
 
     def _remove_field_tag(self, tag):
+        table_name = tag.table_name
+        field_name = tag.field_name
+        
         self.selected_fields = [
             (t, f, ft) for t, f, ft in self.selected_fields
-            if not (t == tag.table_name and f == tag.field_name)
+            if not (t == table_name and f == field_name)
         ]
 
-        key = (tag.table_name, tag.field_name)
+        key = (table_name, field_name)
         if key in self.group_by_fields:
             self.group_by_fields.remove(key)
-        self.order_by_fields = [(t, f, d) for t, f, d in self.order_by_fields if not (t == tag.table_name and f == tag.field_name)]
+        self.order_by_fields = [(t, f, d) for t, f, d in self.order_by_fields if not (t == table_name and f == field_name)]
         if key in self.where_conditions:
             del self.where_conditions[key]
         if key in self.field_tags:
@@ -441,6 +545,9 @@ class SQLQueryBuilder(QWidget):
         self.fields_count_label.setText(f"Selected Fields ({count})")
 
         self._update_query()
+        
+        # Emit signal to sync visual state of the field row
+        self.field_removed.emit(table_name, field_name)
 
     def _on_group_by_toggled(self, tag):
         key = (tag.table_name, tag.field_name)
@@ -507,41 +614,149 @@ class SQLQueryBuilder(QWidget):
         self.sql_editor.setPlainText(query)
 
     def _build_join_clause(self, tables):
+        """
+        Build JOIN clause with support for:
+        - Direct relationships (A -> B)
+        - Indirect relationships via intermediate tables (A -> C -> B)
+        - Clear error messages when no relationship exists
+        """
         if not tables:
             return ""
+        
+        if len(tables) == 1:
+            return f"FROM {tables[0]}"
+
+        # Build adjacency graph from connections
+        graph = {}  # table -> [(connected_table, pk_table, pk_field, fk_table, fk_field)]
+        for pk_t, pk_f, fk_t, fk_f in self.table_connections:
+            if pk_t not in graph:
+                graph[pk_t] = []
+            if fk_t not in graph:
+                graph[fk_t] = []
+            # Add both directions for traversal
+            graph[pk_t].append((fk_t, pk_t, pk_f, fk_t, fk_f))
+            graph[fk_t].append((pk_t, pk_t, pk_f, fk_t, fk_f))
 
         result_tables = [tables[0]]
         joins = []
         remaining = set(tables[1:])
+        unconnected_tables = []
 
         while remaining:
             found = False
+            
+            # Try to find direct connection first
             for r_table in list(remaining):
-                for pk_t, pk_f, fk_t, fk_f in self.table_connections:
-                    if pk_t in result_tables and fk_t == r_table:
-                        joins.append(f"JOIN {fk_t} ON {pk_t}.{pk_f} = {fk_t}.{fk_f}")
-                        result_tables.append(r_table)
-                        remaining.remove(r_table)
-                        found = True
-                        break
-                    elif fk_t in result_tables and pk_t == r_table:
-                        joins.append(f"JOIN {pk_t} ON {fk_t}.{fk_f} = {pk_t}.{pk_f}")
+                for joined_table in result_tables:
+                    # Check direct connection
+                    connection = self._find_direct_connection(joined_table, r_table)
+                    if connection:
+                        pk_t, pk_f, fk_t, fk_f = connection
+                        if pk_t == joined_table:
+                            joins.append(f"JOIN {fk_t} ON {pk_t}.{pk_f} = {fk_t}.{fk_f}")
+                        else:
+                            joins.append(f"JOIN {pk_t} ON {fk_t}.{fk_f} = {pk_t}.{pk_f}")
                         result_tables.append(r_table)
                         remaining.remove(r_table)
                         found = True
                         break
                 if found:
                     break
-
+            
+            if found:
+                continue
+            
+            # Try to find indirect connection via intermediate tables
+            for r_table in list(remaining):
+                path = self._find_path(graph, result_tables, r_table)
+                if path:
+                    # Add intermediate tables and joins
+                    for i in range(len(path) - 1):
+                        from_t = path[i]
+                        to_t = path[i + 1]
+                        
+                        # Skip if already joined
+                        if to_t in result_tables:
+                            continue
+                        
+                        connection = self._find_direct_connection(from_t, to_t)
+                        if connection:
+                            pk_t, pk_f, fk_t, fk_f = connection
+                            if pk_t == from_t:
+                                joins.append(f"JOIN {fk_t} ON {pk_t}.{pk_f} = {fk_t}.{fk_f}")
+                            else:
+                                joins.append(f"JOIN {pk_t} ON {fk_t}.{fk_f} = {pk_t}.{pk_f}")
+                            result_tables.append(to_t)
+                    
+                    if r_table in result_tables:
+                        remaining.remove(r_table)
+                        found = True
+                        break
+            
             if not found and remaining:
+                # No relationship found - mark as unconnected
                 next_table = remaining.pop()
+                unconnected_tables.append(next_table)
                 result_tables.append(next_table)
-                joins.append(f"-- No relationship for {next_table}")
 
+        # Build FROM clause
         from_clause = f"FROM {result_tables[0]}"
         if joins:
             from_clause += "\n" + "\n".join(joins)
+        
+        # Add warning comments for unconnected tables
+        if unconnected_tables:
+            from_clause += "\n-- ⚠️ WARNING: No relationship found for: " + ", ".join(unconnected_tables)
+            from_clause += "\n-- Connect these tables in the diagram first!"
+        
         return from_clause
+
+    def _find_direct_connection(self, table1, table2):
+        """Find direct connection between two tables"""
+        for pk_t, pk_f, fk_t, fk_f in self.table_connections:
+            if (pk_t == table1 and fk_t == table2) or (pk_t == table2 and fk_t == table1):
+                return (pk_t, pk_f, fk_t, fk_f)
+        return None
+
+    def _find_path(self, graph, from_tables, to_table):
+        """
+        BFS to find shortest path from any of from_tables to to_table
+        Returns the path including intermediate tables
+        """
+        from collections import deque
+        
+        # Start BFS from all currently joined tables
+        queue = deque()
+        visited = set()
+        parent = {}
+        
+        for start in from_tables:
+            if start in graph:
+                queue.append(start)
+                visited.add(start)
+                parent[start] = None
+        
+        while queue:
+            current = queue.popleft()
+            
+            if current == to_table:
+                # Reconstruct path
+                path = []
+                node = current
+                while node is not None:
+                    path.append(node)
+                    node = parent.get(node)
+                return list(reversed(path))
+            
+            # Explore neighbors
+            if current in graph:
+                for neighbor, _, _, _, _ in graph[current]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        parent[neighbor] = current
+                        queue.append(neighbor)
+        
+        return None  # No path found
 
     def clear_query(self):
         while self.fields_layout.count() > 0:
@@ -557,6 +772,9 @@ class SQLQueryBuilder(QWidget):
         self.sql_editor.clear()
         self.fields_count_label.setText("Selected Fields (0)")
         self.current_aggregate = None
+        
+        # Emit signal to sync all field rows
+        self.fields_cleared.emit()
 
     def copy_query(self):
         query = self.sql_editor.toPlainText()

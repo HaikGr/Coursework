@@ -2,14 +2,14 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton,
-    QFrame, QTreeWidget, QTreeWidgetItem, QDialog, QMessageBox,
-    QInputDialog, QLineEdit
+    QFrame, QTreeWidget, QTreeWidgetItem, QDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
 from items.TableDetailsPage import TableDetailsPage, show_styled_question, show_styled_message
 from items.InputTableNameWindow import InputTableNameWindow
+from items.InputDatabaseWindow import InputDatabaseWindow
 
 
 class SideBar(QWidget):
@@ -129,13 +129,19 @@ class SideBar(QWidget):
     def add_database(self, name=None):
         """Add a new database to the tree"""
         if not name or not isinstance(name, str):
-            name, ok = QInputDialog.getText(
-                self, "New Database", "Enter database name:",
-                QLineEdit.EchoMode.Normal, f"Database {self.db_counter + 1}"
+            # Use dark themed dialog
+            dialog = InputDatabaseWindow(
+                self, 
+                title="New Database",
+                default_name=f"Database {self.db_counter + 1}",
+                button_text="Create Database"
             )
-            if not ok or not name.strip():
+            result = dialog.exec()
+            if result != QDialog.DialogCode.Accepted:
                 return
-            name = name.strip()
+            name = dialog.get_data()
+            if not name:
+                return
         
         # Check for duplicate
         for i in range(self.db_tree.topLevelItemCount()):
@@ -259,19 +265,24 @@ class SideBar(QWidget):
         
         if role == "database":
             old_name = item.data(0, Qt.ItemDataRole.UserRole + 1)
-            new_name, ok = QInputDialog.getText(
-                self, "Rename Database", "Enter new name:",
-                QLineEdit.EchoMode.Normal, old_name
+            # Use dark themed dialog for rename
+            dialog = InputDatabaseWindow(
+                self,
+                title="Rename Database",
+                default_name=old_name,
+                button_text="Rename"
             )
-            if ok and new_name.strip() and new_name.strip() != old_name:
-                new_name = new_name.strip()
-                item.setData(0, Qt.ItemDataRole.UserRole + 1, new_name)
-                # Update widget
-                widget = self.db_tree.itemWidget(item, 0)
-                if widget:
-                    label = widget.findChild(QLabel, "db_name_label")
-                    if label:
-                        label.setText(new_name)
+            result = dialog.exec()
+            if result == QDialog.DialogCode.Accepted:
+                new_name = dialog.get_data()
+                if new_name and new_name != old_name:
+                    item.setData(0, Qt.ItemDataRole.UserRole + 1, new_name)
+                    # Update widget
+                    widget = self.db_tree.itemWidget(item, 0)
+                    if widget:
+                        label = widget.findChild(QLabel, "db_name_label")
+                        if label:
+                            label.setText(new_name)
     
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Delete:

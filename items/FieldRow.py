@@ -175,10 +175,7 @@ class FieldRow(QFrame):
             field_name = self.field_data[0]
             field_type = self.field_data[3] if len(self.field_data) > 3 else ''
             
-            self.is_selected_for_query = not self.is_selected_for_query
-            self._update_style()
-            self._update_indicator()
-            
+            # Emit signal - let DiagramPage handle the toggle and sync
             self.selected_for_query.emit(table_name, field_name, field_type)
             event.accept()
             return
