@@ -2,10 +2,12 @@
 Dashboard Window with Smooth Transitions
 """
 
+import os
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QStackedWidget
 )
+from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QTimer
 
 import sys
@@ -17,10 +19,17 @@ from items.SQLQueryBuilder import SQLQueryBuilder
 from windowtransitions import WindowTransition
 
 
+def get_app_icon():
+    """Get the application icon path"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, "icon", "sql_query_builder_icon.svg")
+
+
 class DashboardWindow(QMainWindow):
     def __init__(self, username, parent_window=None, geometry=None):
         super().__init__()
-        self.setWindowTitle("Database Dashboard - Connected")
+        self.setWindowTitle("SQL Query Builder - Dashboard")
+        self.setWindowIcon(QIcon(get_app_icon()))
         self.parent_window = parent_window
         self.username = username
         

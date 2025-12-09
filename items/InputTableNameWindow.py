@@ -1,14 +1,23 @@
+import os
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QDialog, QPushButton
 )
+from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
+
+
+def get_app_icon():
+    """Get the application icon path"""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, "icon", "sql_query_builder_icon.svg")
 
 
 class InputTableNameWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Create New Table")
+        self.setWindowIcon(QIcon(get_app_icon()))
         self.setFixedSize(350, 210)
         self.return_data = None
         

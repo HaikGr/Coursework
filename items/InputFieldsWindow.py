@@ -1,14 +1,23 @@
+import os
 from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QDialog, 
     QPushButton, QComboBox, QCheckBox
 )
+from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt
+
+
+def get_app_icon():
+    """Get the application icon path"""
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_dir, "icon", "sql_query_builder_icon.svg")
 
 
 class InputFieldsWindow(QDialog):
     def __init__(self, types_list=None, table_names=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add Field")
+        self.setWindowIcon(QIcon(get_app_icon()))
         self.setFixedSize(360, 600)
         self.setModal(True)
         self.return_data = None
@@ -24,7 +33,7 @@ class InputFieldsWindow(QDialog):
                 "uniqueidentifier"
             ]
 
-        self.table_schemas = {}
+        self.table_schemas = {} 
 
         self.setStyleSheet("""
             QDialog {

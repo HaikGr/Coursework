@@ -2,22 +2,30 @@
 Sign Up Window - Original Blue Theme with Smooth Transitions
 """
 
+import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton,
     QGraphicsDropShadowEffect
 )
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtCore import Qt, QSize, QTimer
 
 import animatedbackground as ab
 from windowtransitions import WindowTransition
 
 
+def get_app_icon():
+    """Get the application icon path"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_dir, "icon", "sql_query_builder_icon.svg")
+
+
 class SignUpWindow(QMainWindow):
     def __init__(self, parent_window, geometry):
         super().__init__()
-        self.setWindowTitle("Database Management")
+        self.setWindowTitle("Database Management - Sign Up")
+        self.setWindowIcon(QIcon(get_app_icon()))
         self.setStyleSheet("background-color: #3B82F6;")
         self.parent_window = parent_window
         self.saved_geometry = geometry
