@@ -1,7 +1,3 @@
-"""
-Dashboard Window with Smooth Transitions
-"""
-
 import os
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
@@ -90,13 +86,13 @@ class DashboardWindow(QMainWindow):
             self.close()
 
 
-def main():
-    app = QApplication(sys.argv)
-    win = DashboardWindow(username="haik", parent_window=None, geometry=None)
-    win.resize(1400, 860)
-    win.show()
-    sys.exit(app.exec())
+# def main():
+#     app = QApplication(sys.argv)
+#     win = DashboardWindow(username="haik", parent_window=None, geometry=None)
+#     win.resize(1400, 860)
+#     win.show()
+#     sys.exit(app.exec())
 
 
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()
