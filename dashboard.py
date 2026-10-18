@@ -13,6 +13,7 @@ from items.SideBar import SideBar
 from items.DiagramPage import DiagramPage
 from items.SQLQueryBuilder import SQLQueryBuilder
 from windowtransitions import WindowTransition
+from api_client import ApiError
 
 
 def get_app_icon():
@@ -22,12 +23,13 @@ def get_app_icon():
 
 
 class DashboardWindow(QMainWindow):
-    def __init__(self, username, parent_window=None, geometry=None):
+    def __init__(self, api, parent_window=None, geometry=None):
         super().__init__()
         self.setWindowTitle("SQL Query Builder - Dashboard")
         self.setWindowIcon(QIcon(get_app_icon()))
         self.parent_window = parent_window
-        self.username = username
+        self.api = api
+        self.username = api.username
         
         if geometry:
             try:
@@ -45,7 +47,7 @@ class DashboardWindow(QMainWindow):
         main_widget.setLayout(root_layout)
         self.setCentralWidget(main_widget)
         
-        top_bar = TopBar(username)
+        top_bar = TopBar(self.username)
         root_layout.addWidget(top_bar)
         
         body_layout = QHBoxLayout()
@@ -56,12 +58,13 @@ class DashboardWindow(QMainWindow):
         self.stacked_center = QStackedWidget()
         self.stacked_center.setMinimumWidth(900)
         
-        self.sidebar_widget = SideBar(self.stacked_center)
-        body_layout.addWidget(self.sidebar_widget)
-        
-        self.sql_builder = SQLQueryBuilder()
+        self.sql_builder = SQLQueryBuilder(api)
         self.diagram_page = DiagramPage(sql_builder=self.sql_builder)
         self.stacked_center.addWidget(self.diagram_page)
+
+        # Created after the diagram page: it loads the user's databases from the server
+        self.sidebar_widget = SideBar(self.stacked_center, api, self.sql_builder)
+        body_layout.addWidget(self.sidebar_widget)
         
         add_table_page = QWidget()
         self.stacked_center.addWidget(add_table_page)
@@ -80,6 +83,10 @@ class DashboardWindow(QMainWindow):
             QTimer.singleShot(50, lambda: WindowTransition.fade_in(self, duration=400))
 
     def log_out(self):
+        try:
+            self.api.logout()
+        except ApiError:
+            pass  # the token is dropped locally either way
         if self.parent_window:
             WindowTransition.cross_fade(self, self.parent_window, duration=400)
         else:

@@ -9,6 +9,7 @@ from PyQt6.QtGui import QFont, QColor, QAction
 
 from items.ToolBar import Toolbar
 from items.InputFieldsWindow import InputFieldsWindow
+import sql_generator as sqlgen
 
 
 def show_styled_message(parent, title, text, icon=QMessageBox.Icon.Information):
@@ -81,8 +82,9 @@ def show_styled_question(parent, title, text):
 class TableDetailsPage(QWidget):
     table_data_ready = pyqtSignal(str, list)
     field_deleted = pyqtSignal(str, list)
+    changes_made = pyqtSignal()  # something here now differs from the database
 
-    def __init__(self, table_name, stacked, all_table_schemas=None):
+    def __init__(self, table_name, stacked, all_table_schemas=None, columns=None, live=False, db_type="POSTGRESQL"):
         super().__init__()
         self.table_name = table_name
         self.columns = []
@@ -90,6 +92,17 @@ class TableDetailsPage(QWidget):
         self.stacked = stacked
         self.all_table_schemas = all_table_schemas or {}
         self.schema_rows = []
+        # A live page mirrors a table that exists in the connected database; any other page is a
+        # new table designed here. Edits are tracked against what the database holds and turned
+        # into SQL by pending_schema_statements() / pending_data_statements().
+        self.live = live
+        self.db_type = db_type
+        self.rows_loaded = False
+        self.pending_drop = False      # the table is to be dropped on the next run
+        self.column_origin = []        # per column: its name in the database, None if added here
+        self.dropped_columns = []      # database names of columns deleted here
+        self.row_origin = []           # per row: {database column name: value} as read, None if added here
+        self.deleted_rows = []         # origins of rows deleted here
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setStyleSheet("background-color: #f5f6f7;")
@@ -117,6 +130,9 @@ class TableDetailsPage(QWidget):
         content_layout.addWidget(self.data_panel, stretch=3)
 
         main_layout.addWidget(content_widget)
+
+        for column in columns or []:
+            self._append_column(list(column), origin=column[0])
 
     def _create_panel_shadow(self, widget):
         shadow = QGraphicsDropShadowEffect()
@@ -238,6 +254,7 @@ class TableDetailsPage(QWidget):
 
         # Add Field button
         add_field_btn = QPushButton("+ Add Field")
+        self.add_field_btn = add_field_btn
         add_field_btn.setFixedHeight(38)
         add_field_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_field_btn.clicked.connect(self.add_field)
@@ -422,6 +439,7 @@ class TableDetailsPage(QWidget):
                 
                 # Emit signal to update diagram
                 self.table_data_ready.emit(self.table_name, self.columns)
+                self._changed()
 
     def _delete_field(self, col_index):
         if col_index >= len(self.columns):
@@ -442,12 +460,16 @@ class TableDetailsPage(QWidget):
                 row.setProperty("col_index", i)
             
             del self.columns[col_index]
+            origin = self.column_origin.pop(col_index)
+            if origin is not None:
+                self.dropped_columns.append(origin)
             
             for row_data in self.rows:
                 if col_index < len(row_data):
                     del row_data[col_index]
             
             self.field_deleted.emit(self.table_name, self.columns)
+            self._changed()
 
     def _build_data_panel(self):
         panel = QFrame()
@@ -478,6 +500,13 @@ class TableDetailsPage(QWidget):
         header_layout.addSpacing(4)
         header_layout.addWidget(table_label)
         header_layout.addStretch()
+
+        self.pending_label = QLabel("● unsaved - Run to save")
+        self.pending_label.setStyleSheet("color: #fbbf24; font-size: 11px; font-weight: 600; background: transparent;")
+        self.pending_label.setToolTip("These changes are in the SQL panel. Click Run Query to save them to the database.")
+        self.pending_label.hide()
+        header_layout.addWidget(self.pending_label)
+        header_layout.addSpacing(8)
         header_layout.addWidget(self.row_count_label)
         
         layout.addWidget(header)
@@ -528,6 +557,7 @@ class TableDetailsPage(QWidget):
 
         # Add Row button
         add_row_btn = QPushButton("+ Add Row")
+        self.add_row_btn = add_row_btn
         add_row_btn.setFixedHeight(38)
         add_row_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_row_btn.clicked.connect(self.add_rows)
@@ -547,6 +577,7 @@ class TableDetailsPage(QWidget):
                 new_value = item.text()
                 self.rows[row][col] = new_value
                 self._update_data_cell(row, col, new_value)
+                self._changed()
 
     def _is_id_column(self, col_index):
         if col_index < len(self.columns):
@@ -598,8 +629,12 @@ class TableDetailsPage(QWidget):
         for i, col_data in enumerate(self.columns):
             col_type = col_data[1].lower()
             pk_flag = col_data[3] if len(col_data) > 3 else ""
-            
-            if pk_flag == "PK" or "int" in col_type:
+            auto = len(col_data) > 6 and col_data[6] == "AUTO"
+
+            if self.live or auto:
+                # The database fills empty cells with defaults (identity, serial, ...)
+                new_row.append("")
+            elif pk_flag == "PK" or "int" in col_type:
                 new_row.append(len(self.rows) + 1)
             elif "money" in col_type or "decimal" in col_type:
                 new_row.append("0")
@@ -610,6 +645,7 @@ class TableDetailsPage(QWidget):
                 new_row.append("")
         
         self.rows.append(new_row)
+        self.row_origin.append(None)
         new_index = len(self.rows) - 1
         self.table.setRowCount(len(self.rows))
         self.table.setRowHeight(new_index, 42)
@@ -618,6 +654,7 @@ class TableDetailsPage(QWidget):
             self._update_data_cell(new_index, col, value)
         
         self._update_row_count()
+        self._changed()
 
     def add_field(self):
         field_info = InputFieldsWindow(table_names=list(self.all_table_schemas.keys()))
@@ -630,7 +667,14 @@ class TableDetailsPage(QWidget):
         if not new_data:
             return
 
-        field_name, type_value, isnull_value, pk_flag, fk_table, fk_field = new_data
+        self._append_column(new_data)
+        self.table_data_ready.emit(self.table_name, self.columns)
+        self._changed()
+
+    def _append_column(self, new_data, origin=None):
+        """Add one column (name, type, Null/Not Null, PK/FK/-, fk_table, fk_field[, AUTO]) to schema and data views.
+        origin is the column's name in the database, or None for a column added here."""
+        field_name, type_value, isnull_value, pk_flag = new_data[:4]
 
         col_index = self.table.columnCount()
         self.table.insertColumn(col_index)
@@ -665,21 +709,115 @@ class TableDetailsPage(QWidget):
         self.scheme.setItem(row_index, 2, null_item)
 
         self.columns.append(new_data)
+        self.column_origin.append(origin)
         
         for row_idx, row_data in enumerate(self.rows):
             default_val = ""
-            if "int" in type_value.lower():
+            if self.live:
+                pass  # existing rows get the database default; type a value to set one
+            elif "int" in type_value.lower():
                 default_val = row_idx + 1
             elif "money" in type_value.lower():
                 default_val = "0"
             row_data.append(default_val)
             self._update_data_cell(row_idx, col_index, default_val)
-        
-        self.table_data_ready.emit(self.table_name, self.columns)
 
-    def _update_row_count(self):
+    def set_rows(self, result_columns, rows, truncated=False):
+        """Show rows read from the database (values already JSON-decoded), matched to columns by name"""
+        position = {name: i for i, name in enumerate(result_columns)}
+        self.rows = []
+        self.row_origin = []
+        for row in rows:
+            values = [row[position[origin]] if origin in position else "" for origin in self.column_origin]
+            self.rows.append(values)
+            self.row_origin.append({name: row[i] for name, i in position.items()})
+        self.deleted_rows = []
+        self.table.setRowCount(len(self.rows))
+        for row_idx, row_data in enumerate(self.rows):
+            self.table.setRowHeight(row_idx, 42)
+            for col_idx, value in enumerate(row_data):
+                self._update_data_cell(row_idx, col_idx, "NULL" if value is None else value)
+        self.rows_loaded = True
+        self._update_row_count(truncated)
+
+    # ---------------- Changes -> SQL ----------------
+    def _changed(self):
+        has_changes = bool(self.pending_schema_statements([]) or self.pending_data_statements())
+        self.pending_label.setVisible(has_changes)
+        self.changes_made.emit()
+
+    def _plain(self, value, col_index):
+        """Cell value as compared with the database: NULL for None, no display '$' prefix"""
+        if value is None:
+            return "NULL"
+        text = str(value)
+        if self._is_money_column(col_index) and text.startswith("$"):
+            text = text[1:]
+        return text
+
+    def pending_schema_statements(self, foreign_keys):
+        """CREATE/ALTER/DROP needed to bring the database in line with this page.
+        foreign_keys: [(column, referenced_table, referenced_column)] used when creating the table."""
+        if self.pending_drop:
+            return [sqlgen.drop_table(self.table_name, self.db_type)] if self.live else []
+        if not self.live:
+            if not self.columns:
+                return []
+            return [sqlgen.create_table(self.table_name, self.columns, foreign_keys, self.db_type)]
+
+        statements = [sqlgen.drop_column(self.table_name, name, self.db_type) for name in self.dropped_columns]
+        for column, origin in zip(self.columns, self.column_origin):
+            if origin is None:
+                statements.append(sqlgen.add_column(self.table_name, column, self.db_type))
+            elif origin != column[0]:
+                statements.append(sqlgen.rename_column(self.table_name, origin, column[0], self.db_type))
+        return statements
+
+    def pending_data_statements(self):
+        """DELETE/UPDATE/INSERT for the rows changed here (run after the schema statements)"""
+        if self.pending_drop or not self.columns:
+            return []
+        statements = []
+        for origin in self.deleted_rows:
+            where = self._row_identity(origin)
+            if where:
+                statements.append(sqlgen.delete(self.table_name, where, self.db_type))
+
+        for row, origin in zip(self.rows, self.row_origin):
+            if origin is None:
+                assignments = [
+                    (column[0], sqlgen.literal(self._plain(value, i), column[1], self.db_type))
+                    for i, (column, value) in enumerate(zip(self.columns, row))
+                    if value is not None and str(value).strip() != ""
+                ]
+                statements.append(sqlgen.insert(self.table_name, assignments, self.db_type))
+                continue
+
+            assignments = []
+            for i, (column, value, column_origin) in enumerate(zip(self.columns, row, self.column_origin)):
+                before = self._plain(origin.get(column_origin), i) if column_origin is not None else ""
+                if self._plain(value, i) != before:
+                    assignments.append((column[0], sqlgen.literal(self._plain(value, i), column[1], self.db_type)))
+            where = self._row_identity(origin)
+            if assignments and where:
+                statements.append(sqlgen.update(self.table_name, assignments, where, self.db_type))
+        return statements
+
+    def _row_identity(self, origin):
+        """WHERE conditions that find a row as it was read: its primary key, or every column if there is none"""
+        known = [(i, column, column_origin) for i, (column, column_origin)
+                 in enumerate(zip(self.columns, self.column_origin))
+                 if column_origin is not None and column_origin in origin]
+        keys = [entry for entry in known if entry[1][3] == "PK"] or known
+        return [(column[0], sqlgen.literal(origin[column_origin], column[1], self.db_type))
+                for _, column, column_origin in keys]
+
+    def _update_row_count(self, truncated=False):
         count = len(self.rows)
-        self.row_count_label.setText(f"{count} row{'s' if count != 1 else ''}")
+        if truncated:
+            self.row_count_label.setText(f"first {count} rows")
+        else:
+            self.row_count_label.setText(f"{count} row{'s' if count != 1 else ''}")
 
     def keyPressEvent(self, event):
         if event.key() != Qt.Key.Key_Delete:
@@ -694,7 +832,11 @@ class TableDetailsPage(QWidget):
                     self.table.removeRow(row)
                     if row < len(self.rows):
                         del self.rows[row]
+                        origin = self.row_origin.pop(row)
+                        if origin is not None:
+                            self.deleted_rows.append(origin)
                 self._update_row_count()
+                self._changed()
             return
 
     def go_back(self):

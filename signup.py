@@ -5,7 +5,7 @@ Sign Up Window - Original Blue Theme with Smooth Transitions
 import os
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton,
+    QLabel, QLineEdit, QPushButton, QComboBox, QMessageBox,
     QGraphicsDropShadowEffect
 )
 from PyQt6.QtGui import QColor, QIcon
@@ -13,6 +13,8 @@ from PyQt6.QtCore import Qt, QSize, QTimer
 
 import animatedbackground as ab
 from windowtransitions import WindowTransition
+from api_client import ApiClient, ApiError, busy_cursor, DB_TYPES, DEFAULT_PORTS
+from dashboard import DashboardWindow
 
 
 def get_app_icon():
@@ -87,114 +89,100 @@ class SignUpWindow(QMainWindow):
         card.setGraphicsEffect(shadow)
 
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(25, 25, 25, 25)
+        card_layout.setContentsMargins(25, 20, 25, 20)
+        card_layout.setSpacing(8)
 
         # Heading
-        heading = QLabel("Connect Database")
+        heading = QLabel("Create Account")
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        heading.setStyleSheet("font-size: 32px; color: #4B5563; margin-bottom: 20px; font-weight: bold;")
-        card_layout.addSpacing(-10)
+        heading.setStyleSheet("font-size: 30px; color: #4B5563; font-weight: bold;")
         card_layout.addWidget(heading)
-        card_layout.addSpacing(-25)
-
-        # Text
-        databasetext = QLabel("Enter your database connection details")
-        databasetext.setStyleSheet("font-size: 15px; color: #838b99;")
-        databasetext.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card_layout.addWidget(databasetext)
-        card_layout.addSpacing(5)
 
         input_style = """
-            QLineEdit {
+            QLineEdit, QComboBox {
                 background: white;
                 border: 2px solid transparent;
-                border-radius: 24px;
-                padding: 12px 20px;
-                font-size: 16px;
+                border-radius: 20px;
+                padding: 8px 16px;
+                font-size: 14px;
                 color: #4B5563;
             }
-            QLineEdit:focus { border: 2px solid #93B9E8; }
+            QLineEdit:focus, QComboBox:focus { border: 2px solid #93B9E8; }
+            QComboBox::drop-down { border: none; width: 24px; }
+            QComboBox QAbstractItemView {
+                background: white;
+                color: #4B5563;
+                selection-background-color: #93B9E8;
+            }
         """
 
-        # Username
+        # Account
         self.username = QLineEdit()
         self.username.setPlaceholderText("Username")
         self.username.setStyleSheet(input_style)
         card_layout.addWidget(self.username)
 
-        # Password with toggle
-        password_container = QWidget()
-        password_container.setFixedHeight(50)
-        password_container.setStyleSheet("background: transparent;")
+        self.email = QLineEdit()
+        self.email.setPlaceholderText("Email")
+        self.email.setStyleSheet(input_style)
+        card_layout.addWidget(self.email)
 
-        self.password = QLineEdit(password_container)
-        self.password.setGeometry(0, 0, 320, 50)
-        self.password.setPlaceholderText("Password")
-        self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password.setStyleSheet(input_style)
-
-        self.password_btn = QPushButton(password_container)
-        self.password_btn.setGeometry(270, 8, 34, 34)
-        self.password_btn.setIcon(ab.svg_icon(ab.EYE_CLOSED))
-        self.password_btn.setIconSize(QSize(22, 22))
-        self.password_btn.setStyleSheet("""
-            QPushButton { color: black; border: none; background: transparent; }
-        """)
+        password_container, self.password, self.password_btn = self._password_field(
+            "Password (min. 8 characters)", 330, input_style)
         self.password_btn.clicked.connect(self.toggle_password_main)
         card_layout.addWidget(password_container)
 
-        # Host
+        # Database connection (optional)
+        databasetext = QLabel("Connect a database (optional)")
+        databasetext.setStyleSheet("font-size: 14px; color: #838b99;")
+        databasetext.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addSpacing(4)
+        card_layout.addWidget(databasetext)
+
         self.host = QLineEdit()
         self.host.setPlaceholderText("Host (e.g., localhost)")
         self.host.setStyleSheet(input_style)
-        card_layout.addWidget(self.host)
-
-        # Port
         self.port = QLineEdit()
-        self.port.setPlaceholderText("Port (e.g., 5432)")
         self.port.setStyleSheet(input_style)
-        card_layout.addWidget(self.port)
+        self.port.setFixedWidth(120)
+        card_layout.addLayout(self._row(self.host, self.port))
 
-        # Database Name
         self.databasename = QLineEdit()
         self.databasename.setPlaceholderText("Database Name")
         self.databasename.setStyleSheet(input_style)
-        card_layout.addWidget(self.databasename)
+        self.db_type = QComboBox()
+        for value, label, _ in DB_TYPES:
+            self.db_type.addItem(label, value)
+        self.db_type.setStyleSheet(input_style)
+        self.db_type.setFixedWidth(150)
+        self.db_type.currentIndexChanged.connect(self._update_port_placeholder)
+        card_layout.addLayout(self._row(self.databasename, self.db_type))
+        self._update_port_placeholder()
 
-        # Database Password with toggle
-        db_pwd_container = QWidget()
-        db_pwd_container.setFixedHeight(50)
-        db_pwd_container.setStyleSheet("background: transparent;")
-
-        self.db_password = QLineEdit(db_pwd_container)
-        self.db_password.setGeometry(0, 0, 320, 50)
-        self.db_password.setPlaceholderText("Database Password")
-        self.db_password.setEchoMode(QLineEdit.EchoMode.Password)
-        self.db_password.setStyleSheet(input_style)
-
-        self.db_password_btn = QPushButton(db_pwd_container)
-        self.db_password_btn.setGeometry(270, 8, 34, 34)
-        self.db_password_btn.setIcon(ab.svg_icon(ab.EYE_CLOSED))
-        self.db_password_btn.setIconSize(QSize(22, 22))
-        self.db_password_btn.setStyleSheet("""
-            QPushButton { color: black; border: none; background: transparent; }
-        """)
+        self.db_username = QLineEdit()
+        self.db_username.setPlaceholderText("DB Username")
+        self.db_username.setStyleSheet(input_style)
+        db_pwd_container, self.db_password, self.db_password_btn = self._password_field(
+            "DB Password", 160, input_style)
         self.db_password_btn.clicked.connect(self.toggle_password_db)
-        card_layout.addWidget(db_pwd_container)
+        card_layout.addLayout(self._row(self.db_username, db_pwd_container))
+
+        card_layout.addSpacing(6)
 
         # Circle Connect button
-        connect_btn = QPushButton("Connect")
-        connect_btn.setFixedSize(120, 120)
+        connect_btn = QPushButton("Sign Up")
+        connect_btn.setFixedSize(100, 100)
         connect_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3479f3;
                 color: white;
-                font-size: 18px;
-                border-radius: 60px;
+                font-size: 17px;
+                border-radius: 50px;
                 font-weight: bold;
             }
             QPushButton:hover { background-color: #7BA3D0; }
         """)
+        connect_btn.clicked.connect(self.attempt_signup)
         card_layout.addWidget(connect_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # Sign in link
@@ -202,7 +190,6 @@ class SignUpWindow(QMainWindow):
         signup.setStyleSheet("color:#3B82F6; background:transparent; border:none;")
         signup.clicked.connect(self.go_back)
         card_layout.addWidget(signup, alignment=Qt.AlignmentFlag.AlignCenter)
-        card_layout.addSpacing(-15)
 
         container_layout.addWidget(card, stretch=1)
 
@@ -219,6 +206,88 @@ class SignUpWindow(QMainWindow):
             self._first_show = False
             self.setWindowOpacity(0.0)
             QTimer.singleShot(50, lambda: WindowTransition.fade_in(self, duration=350))
+
+    @staticmethod
+    def _password_field(placeholder, width, style):
+        """A password input with an eye button to show/hide the text."""
+        container = QWidget()
+        container.setFixedSize(width, 40)
+        container.setStyleSheet("background: transparent;")
+
+        field = QLineEdit(container)
+        field.setGeometry(0, 0, width, 40)
+        field.setPlaceholderText(placeholder)
+        field.setEchoMode(QLineEdit.EchoMode.Password)
+        field.setStyleSheet(style)
+
+        toggle = QPushButton(container)
+        toggle.setGeometry(width - 38, 6, 28, 28)
+        toggle.setIcon(ab.svg_icon(ab.EYE_CLOSED))
+        toggle.setIconSize(QSize(20, 20))
+        toggle.setStyleSheet("QPushButton { color: black; border: none; background: transparent; }")
+        return container, field, toggle
+
+    @staticmethod
+    def _row(*widgets):
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        for widget in widgets:
+            row.addWidget(widget)
+        return row
+
+    def _update_port_placeholder(self):
+        self.port.setPlaceholderText(f"Port {DEFAULT_PORTS[self.db_type.currentData()]}")
+
+    def attempt_signup(self):
+        username = self.username.text().strip()
+        email = self.email.text().strip()
+        password = self.password.text()
+        if not username or not email or not password:
+            QMessageBox.warning(self, "Sign Up Error", "Please enter a username, an email and a password.")
+            return
+
+        db_fields = [self.host.text().strip(), self.databasename.text().strip(),
+                     self.db_username.text().strip(), self.db_password.text()]
+        wants_database = any(db_fields) or bool(self.port.text().strip())
+        connection = None
+        if wants_database:
+            if not all(db_fields):
+                QMessageBox.warning(self, "Sign Up Error",
+                                    "To connect a database, fill in host, database name, DB username and "
+                                    "DB password - or leave them all empty and add it later.")
+                return
+            port_text = self.port.text().strip() or str(DEFAULT_PORTS[self.db_type.currentData()])
+            if not port_text.isdigit() or not 1 <= int(port_text) <= 65535:
+                QMessageBox.warning(self, "Sign Up Error", "Port must be a number between 1 and 65535.")
+                return
+            connection = {
+                "host": db_fields[0],
+                "port": int(port_text),
+                "dbName": db_fields[1],
+                "dbUsername": db_fields[2],
+                "dbPassword": db_fields[3],
+                "dbType": self.db_type.currentData(),
+            }
+
+        api = ApiClient()
+        try:
+            with busy_cursor():
+                api.register(username, email, password)
+        except ApiError as error:
+            QMessageBox.warning(self, "Sign Up Error", str(error))
+            return
+
+        if connection:
+            try:
+                with busy_cursor():
+                    api.create_connection(connection)
+            except ApiError as error:
+                QMessageBox.warning(self, "Database Not Added",
+                                    f"Your account was created, but the database could not be added:\n{error}\n\n"
+                                    "You can add it from the dashboard with \"+ Add Database\".")
+
+        self.dashboard_window = DashboardWindow(api, self.parent_window, self.saveGeometry())
+        WindowTransition.cross_fade(self, self.dashboard_window, duration=450)
 
     def toggle_password_main(self):
         if self.password.echoMode() == QLineEdit.EchoMode.Password:

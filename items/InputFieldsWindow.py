@@ -271,7 +271,8 @@ class InputFieldsWindow(QDialog):
         else:
             pk_flag = "-"
 
-        self.return_data = [field_name, type_value, isnull_value, pk_flag, "-", "-"]
+        auto_flag = "AUTO" if self.auto_checkbox.isChecked() else "-"
+        self.return_data = [field_name, type_value, isnull_value, pk_flag, "-", "-", auto_flag]
         super().accept()
 
     def get_data(self):

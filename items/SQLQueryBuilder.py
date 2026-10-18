@@ -1,10 +1,14 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-    QFrame, QPushButton, QScrollArea, QApplication, QSizePolicy
+    QFrame, QPushButton, QScrollArea, QApplication, QSizePolicy, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QTextCharFormat, QColor, QFont, QSyntaxHighlighter
 import re
+
+from api_client import ApiError, busy_cursor, quote_identifier
+from items.QueryResultsWindow import QueryResultsWindow
+from items.TableDetailsPage import show_styled_message
 
 
 class SQLHighlighter(QSyntaxHighlighter):
@@ -224,9 +228,14 @@ class SQLQueryBuilder(QWidget):
     # Signal emitted when a field is removed (for syncing with FieldRow visuals)
     field_removed = pyqtSignal(str, str)  # table_name, field_name
     fields_cleared = pyqtSignal()  # Emitted when all fields are cleared
+    script_executed = pyqtSignal(list)  # one result per statement, after a successful Run
     
-    def __init__(self):
+    def __init__(self, api=None):
         super().__init__()
+        self.api = api
+        self.connection = None  # database the query runs against (set by the sidebar)
+        self.change_statements = []  # SQL that saves the edits made in the table editor
+        self.builder_query = ""  # SELECT built from the fields picked on the diagram
         self.selected_fields = []
         self.group_by_fields = []
         self.order_by_fields = []  # List of (table, field, direction)
@@ -290,7 +299,20 @@ class SQLQueryBuilder(QWidget):
         content_layout.setContentsMargins(10, 10, 10, 10)
         content_layout.setSpacing(10)
 
-        # SQL Preview - Auto-scales with content
+        # Database the query will run against
+        self.connection_label = QLabel()
+        self.connection_label.setWordWrap(True)
+        self.connection_label.setStyleSheet("color: #94a3b8; font-size: 10px; background: transparent;")
+        content_layout.addWidget(self.connection_label)
+        self.set_connection(None)
+
+        self.changes_label = QLabel()
+        self.changes_label.setWordWrap(True)
+        self.changes_label.setStyleSheet("color: #fbbf24; font-size: 10px; font-weight: 600; background: transparent;")
+        self.changes_label.hide()
+        content_layout.addWidget(self.changes_label)
+
+        # SQL Preview - Auto-scales with content (editable, so generated SQL can be adjusted before running)
         self.sql_editor = QTextEdit()
         self.sql_editor.setStyleSheet("""
             QTextEdit {
@@ -303,7 +325,8 @@ class SQLQueryBuilder(QWidget):
                 border: 1px solid #334155;
             }
         """)
-        self.sql_editor.setReadOnly(True)
+        self.sql_editor.setPlaceholderText("Right-click fields in the diagram to build a query, or type SQL here")
+        self.sql_editor.setAcceptRichText(False)
         self.sql_editor.setMinimumHeight(80)
         self.sql_editor.setMaximumHeight(300)
         self.sql_editor.document().contentsChanged.connect(self._adjust_editor_height)
@@ -393,6 +416,26 @@ class SQLQueryBuilder(QWidget):
             }
         """)
         copy_btn.clicked.connect(self.copy_query)
+
+        # Run button
+        run_btn = QPushButton("▶  Run Query")
+        run_btn.setFixedHeight(38)
+        run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        run_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 12px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+        """)
+        run_btn.clicked.connect(self.run_query)
+        content_layout.addWidget(run_btn)
         content_layout.addWidget(copy_btn)
 
         main_layout.addWidget(content)
@@ -407,6 +450,14 @@ class SQLQueryBuilder(QWidget):
         """Set the current aggregate function (called from Toolbar)"""
         self.current_aggregate = agg_name if agg_name else None
 
+    def set_connection(self, connection):
+        """Select the database (API connection dict, or None) the query runs against"""
+        self.connection = connection
+        if connection:
+            self.connection_label.setText(f"Database: {connection['dbName']}  ({connection['dbType']})")
+        else:
+            self.connection_label.setText("No database selected - pick one in the sidebar")
+
     def set_connections(self, connections):
         self.table_connections = []
         for pk_field, fk_field, relation_type in connections:
@@ -415,7 +466,9 @@ class SQLQueryBuilder(QWidget):
             fk_table = fk_field.table_card.table_name
             fk_field_name = fk_field.field_data[0]
             self.table_connections.append((pk_table, pk_field_name, fk_table, fk_field_name))
-        self._update_query()
+        # Only regenerate when the builder owns the text - keep SQL the user typed by hand
+        if self.selected_fields:
+            self._update_query()
 
     def add_field(self, table_name, field_name, field_type):
         for tbl, fld, ftype in self.selected_fields:
@@ -568,9 +621,32 @@ class SQLQueryBuilder(QWidget):
             self.order_by_fields.append((key[0], key[1], direction))
         self._update_query()
 
+    def _q(self, name):
+        """A name quoted for the selected database (bare when no database is selected)"""
+        return quote_identifier(name, self.connection["dbType"]) if self.connection else name
+
+    def _col(self, table, field):
+        return f"{self._q(table)}.{self._q(field)}"
+
+    def set_change_script(self, statements):
+        """Show the SQL that saves the table editor's edits; Run executes it before any SELECT"""
+        self.change_statements = list(statements)
+        count = len(self.change_statements)
+        self.changes_label.setText(f"{count} unsaved change{'s' if count != 1 else ''} - "
+                                   "click Run Query to save them to the database")
+        self.changes_label.setVisible(count > 0)
+        self._render_editor()
+
+    def _render_editor(self):
+        parts = [statement + ";" for statement in self.change_statements]
+        if self.builder_query:
+            parts.append(self.builder_query)
+        self.sql_editor.setPlainText("\n\n".join(parts))
+
     def _update_query(self):
         if not self.selected_fields:
-            self.sql_editor.clear()
+            self.builder_query = ""
+            self._render_editor()
             return
 
         # Build SELECT clause with aggregates
@@ -578,9 +654,9 @@ class SQLQueryBuilder(QWidget):
         for t, f, _ in self.selected_fields:
             tag = self.field_tags.get((t, f))
             if tag and tag.aggregate:
-                select_parts.append(f"{tag.aggregate}({t}.{f})")
+                select_parts.append(f"{tag.aggregate}({self._col(t, f)})")
             else:
-                select_parts.append(f"{t}.{f}")
+                select_parts.append(self._col(t, f))
         select_clause = "SELECT " + ",\n       ".join(select_parts)
 
         # Get tables
@@ -588,30 +664,31 @@ class SQLQueryBuilder(QWidget):
 
         # Build FROM/JOIN
         if len(tables) == 1:
-            from_clause = f"FROM {tables[0]}"
+            from_clause = f"FROM {self._q(tables[0])}"
         else:
             from_clause = self._build_join_clause(tables)
 
         # WHERE
         where_clause = ""
         if self.where_conditions:
-            conditions = [f"{t}.{f} {cond}" for (t, f), cond in self.where_conditions.items()]
+            conditions = [f"{self._col(t, f)} {cond}" for (t, f), cond in self.where_conditions.items()]
             where_clause = "\nWHERE " + "\n  AND ".join(conditions)
 
         # GROUP BY
         group_by_clause = ""
         if self.group_by_fields:
-            group_parts = [f"{t}.{f}" for t, f in self.group_by_fields]
+            group_parts = [self._col(t, f) for t, f in self.group_by_fields]
             group_by_clause = "\nGROUP BY " + ", ".join(group_parts)
 
         # ORDER BY
         order_by_clause = ""
         if self.order_by_fields:
-            order_parts = [f"{t}.{f} {d}" for t, f, d in self.order_by_fields]
+            order_parts = [f"{self._col(t, f)} {d}" for t, f, d in self.order_by_fields]
             order_by_clause = "\nORDER BY " + ", ".join(order_parts)
 
         query = f"{select_clause}\n{from_clause}{where_clause}{group_by_clause}{order_by_clause}"
-        self.sql_editor.setPlainText(query)
+        self.builder_query = query
+        self._render_editor()
 
     def _build_join_clause(self, tables):
         """
@@ -624,7 +701,7 @@ class SQLQueryBuilder(QWidget):
             return ""
         
         if len(tables) == 1:
-            return f"FROM {tables[0]}"
+            return f"FROM {self._q(tables[0])}"
 
         # Build adjacency graph from connections
         graph = {}  # table -> [(connected_table, pk_table, pk_field, fk_table, fk_field)]
@@ -653,9 +730,9 @@ class SQLQueryBuilder(QWidget):
                     if connection:
                         pk_t, pk_f, fk_t, fk_f = connection
                         if pk_t == joined_table:
-                            joins.append(f"JOIN {fk_t} ON {pk_t}.{pk_f} = {fk_t}.{fk_f}")
+                            joins.append(f"JOIN {self._q(fk_t)} ON {self._col(pk_t, pk_f)} = {self._col(fk_t, fk_f)}")
                         else:
-                            joins.append(f"JOIN {pk_t} ON {fk_t}.{fk_f} = {pk_t}.{pk_f}")
+                            joins.append(f"JOIN {self._q(pk_t)} ON {self._col(fk_t, fk_f)} = {self._col(pk_t, pk_f)}")
                         result_tables.append(r_table)
                         remaining.remove(r_table)
                         found = True
@@ -683,9 +760,9 @@ class SQLQueryBuilder(QWidget):
                         if connection:
                             pk_t, pk_f, fk_t, fk_f = connection
                             if pk_t == from_t:
-                                joins.append(f"JOIN {fk_t} ON {pk_t}.{pk_f} = {fk_t}.{fk_f}")
+                                joins.append(f"JOIN {self._q(fk_t)} ON {self._col(pk_t, pk_f)} = {self._col(fk_t, fk_f)}")
                             else:
-                                joins.append(f"JOIN {pk_t} ON {fk_t}.{fk_f} = {pk_t}.{pk_f}")
+                                joins.append(f"JOIN {self._q(pk_t)} ON {self._col(fk_t, fk_f)} = {self._col(pk_t, pk_f)}")
                             result_tables.append(to_t)
                     
                     if r_table in result_tables:
@@ -700,7 +777,7 @@ class SQLQueryBuilder(QWidget):
                 result_tables.append(next_table)
 
         # Build FROM clause
-        from_clause = f"FROM {result_tables[0]}"
+        from_clause = f"FROM {self._q(result_tables[0])}"
         if joins:
             from_clause += "\n" + "\n".join(joins)
         
@@ -769,7 +846,8 @@ class SQLQueryBuilder(QWidget):
         self.order_by_fields.clear()
         self.where_conditions.clear()
         self.field_tags.clear()
-        self.sql_editor.clear()
+        self.builder_query = ""
+        self._render_editor()
         self.fields_count_label.setText("Selected Fields (0)")
         self.current_aggregate = None
         
@@ -780,3 +858,23 @@ class SQLQueryBuilder(QWidget):
         query = self.sql_editor.toPlainText()
         if query:
             QApplication.clipboard().setText(query)
+
+    def run_query(self):
+        sql = self.sql_editor.toPlainText().strip()
+        if not sql:
+            show_styled_message(self, "Run Query", "There is no query to run yet.", QMessageBox.Icon.Warning)
+            return
+        if not self.api or not self.connection:
+            show_styled_message(self, "Run Query", "Select a database in the sidebar first.",
+                                QMessageBox.Icon.Warning)
+            return
+        connection = self.connection
+        try:
+            with busy_cursor():
+                result = self.api.run_script(connection["id"], sql)
+        except ApiError as error:
+            show_styled_message(self, "Query Failed", str(error), QMessageBox.Icon.Critical)
+            return
+        results = result.get("results") or []
+        QueryResultsWindow(results, result.get("durationMs", 0), connection["dbName"], self).exec()
+        self.script_executed.emit(results)

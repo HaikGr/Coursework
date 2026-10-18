@@ -9,13 +9,14 @@ from PyQt6.QtWidgets import (
     QGraphicsDropShadowEffect
 )
 from PyQt6.QtGui import QColor, QIcon
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QSize, QTimer, QSettings
 
 from signup import SignUpWindow
 from dashboard import DashboardWindow
 from forgotpassword import ForgotPasswordWindow
 import animatedbackground as ab
 from windowtransitions import WindowTransition
+from api_client import ApiClient, ApiError, busy_cursor
 
 
 def get_app_icon():
@@ -120,6 +121,7 @@ class SignInWindow(QMainWindow):
         self.password.setGeometry(0, 0, 320, 50)
         self.password.setPlaceholderText("Password")
         self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.returnPressed.connect(self.attempt_signin)
         self.password.setStyleSheet("""
             QLineEdit {
                 background: white;
@@ -151,6 +153,11 @@ class SignInWindow(QMainWindow):
         remember_layout.setSpacing(10)
         self.remember = QCheckBox("Remember me")
         self.remember.setStyleSheet("color: #8691a0; font-size: 14px;")
+        self.settings = QSettings("DatabaseManagement", "Coursework")
+        remembered = self.settings.value("remembered_username", "")
+        if remembered:
+            self.username.setText(remembered)
+            self.remember.setChecked(True)
         forgot = QPushButton("Forgot password?")
         forgot.setStyleSheet("color: #3B82F6; background: transparent; border: none;")
         forgot.clicked.connect(self.open_forgot_password)
@@ -236,5 +243,20 @@ class SignInWindow(QMainWindow):
             msg.setText("Please enter both username/email and password.")
             msg.exec()
             return
-        self.dashboard_window = DashboardWindow(username, self, self.saveGeometry())
+
+        api = ApiClient()
+        try:
+            with busy_cursor():
+                api.login(username, password)
+        except ApiError as error:
+            QMessageBox.warning(self, "Sign In Error", str(error))
+            return
+
+        if self.remember.isChecked():
+            self.settings.setValue("remembered_username", username)
+        else:
+            self.settings.remove("remembered_username")
+        self.password.clear()
+
+        self.dashboard_window = DashboardWindow(api, self, self.saveGeometry())
         WindowTransition.cross_fade(self, self.dashboard_window, duration=450)

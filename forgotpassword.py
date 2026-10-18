@@ -155,7 +155,12 @@ class ForgotPasswordWindow(QMainWindow):
             QMessageBox.warning(self, "Input Error", "Please enter a valid email address.")
             return
         
-        QMessageBox.information(self, "Password Reset", f"A password reset link has been sent to {email}.")
+        # The backend has no password-reset endpoint yet, so nothing can be sent.
+        QMessageBox.information(
+            self, "Password Reset",
+            "Password reset by email is not available yet.\n"
+            "You can still sign in with your username or email and your current password."
+        )
         self.go_back()
 
     def go_back(self):

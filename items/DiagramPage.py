@@ -64,6 +64,8 @@ class DiagramPage(QWidget):
             new_card.show()
             new_card.move(self._x, self._y)
             self.table_area.add_card(new_card)
+            # Grow the canvas so cards placed further down stay reachable by scrolling
+            self.table_area.setMinimumSize(max(1400, self._x + 300), max(900, self._y + 360))
             
             # Connect field signals to SQL builder
             if self.sql_builder:
@@ -169,3 +171,45 @@ class DiagramPage(QWidget):
         card.setParent(None)
         card.deleteLater()
         self.table_area.update()
+
+    def clear_diagram(self):
+        """Remove every card (used when another database is selected)"""
+        for table_name in list(self.cards):
+            self.remove_table_card(table_name)
+        self._x, self._y = 120, 80
+        self.table_area.setMinimumSize(1400, 900)
+
+    def export_links(self):
+        """Current PK-FK connections as names: (pk_table, pk_field, fk_table, fk_field)"""
+        return [
+            (pk.table_card.table_name, pk.field_data[0], fk.table_card.table_name, fk.field_data[0])
+            for pk, fk, _ in self.table_area.connections
+        ]
+
+    def restore_links(self, links):
+        """Draw PK-FK connections given by name, skipping any whose fields are not on the diagram"""
+        added = False
+        for pk_table, pk_field, fk_table, fk_field in links:
+            pk_row = self._find_row(pk_table, pk_field)
+            fk_row = self._find_row(fk_table, fk_field)
+            if pk_row is None or fk_row is None or pk_row.table_card == fk_row.table_card:
+                continue
+            if self.table_area.connection_exists(pk_row, fk_row):
+                continue
+            self.table_area.connections.append((pk_row, fk_row, 'one-to-many'))
+            pk_row.add_connection()
+            fk_row.add_connection()
+            added = True
+        if added:
+            self.table_area.connections_changed.emit()
+        self.table_area.update()
+
+    def _find_row(self, table_name, field_name):
+        card = self.cards.get(table_name)
+        if card is None:
+            return None
+        for row in (getattr(card, 'pk_rows', []) + getattr(card, 'fk_rows', [])
+                    + getattr(card, 'main_rows', [])):
+            if row.field_data[0] == field_name:
+                return row
+        return None
