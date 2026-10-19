@@ -41,10 +41,24 @@ class FakeBackend(BaseHTTPRequestHandler):
             self._reply(200, raw=b"<html>proxy error</html>")
         elif self.path == "/api/db-connections/3/query":
             self.connection.shutdown(socket.SHUT_RDWR)  # the server goes away mid-request
+        elif self.path == "/api/db-connections/test":
+            self._reply(502, {"status": 502, "message": "Could not connect to POSTGRESQL localhost:5439/db"})
+        elif self.path == "/api/db-connections/5/test":
+            self._reply(200, {"message": "Connected to PostgreSQL 16.4 in 9 ms"})
         elif self.path == "/api/db-connections":
             self._reply(401, {"status": 401, "message": "Full authentication is required"})
         elif self.path == "/api/auth/logout":
             self._reply(200, {"message": "Logged out"})
+        elif self.path == "/api/users/7" and self.command == "GET":
+            self._reply(200, {"id": 7, "username": "ann", "email": None})
+        elif self.path == "/api/users/7" and self.command == "DELETE":
+            self._reply(204)
+        elif self.path == "/api/premium-users":
+            self._reply(200, [])
+        elif self.path == "/api/invitations":
+            self._reply(201, {"id": 5, "status": "PENDING", **body})
+        elif self.path == "/api/invitations/5":
+            self._reply(200, {"id": 5, **body})
         else:
             self._reply(404, {"status": 404, "message": "No such thing"})
 
@@ -90,6 +104,41 @@ class ApiClientTest(unittest.TestCase):
             self.api.register("ann", "a@b.c", "short")
         self.assertEqual(caught.exception.field_errors, {"password": "size must be between 8 and 100"})
         self.assertIn("• password: size must be between 8 and 100", str(caught.exception))
+
+    def test_registering_without_an_email_leaves_it_out(self):
+        with self.assertRaises(ApiError):  # the fake turns every registration down
+            self.api.register("ann", "", "password123")
+        self.assertEqual(FakeBackend.requests[-1][3], {"username": "ann", "password": "password123"})
+
+    def test_deleting_the_account_sends_the_password_and_ends_the_session(self):
+        self.api.login("ann", "right")
+        self.assertIsNone(self.api.account()["email"])
+        self.api.delete_account("right")
+        self.assertEqual(FakeBackend.requests[-1][:2] + FakeBackend.requests[-1][3:],
+                         ("DELETE", "/api/users/7", {"password": "right"}))
+        self.assertEqual(FakeBackend.requests[-1][2], "Bearer t0k3n")
+        self.assertFalse(self.api.signed_in)
+
+    def test_no_premium_link_means_not_premium(self):
+        self.assertIsNone(self.api.premium_status())
+
+    def test_an_invitation_names_the_user_and_an_answer_is_only_the_status(self):
+        self.api.invite(4, "bob", 2)
+        self.api.set_invitation_status(5, "ACCEPTED")
+        self.assertEqual([request[:2] + request[3:] for request in FakeBackend.requests], [
+            ("POST", "/api/invitations", {"toUsername": "bob", "dbConnectionId": 4, "additionalRoleId": 2}),
+            ("PUT", "/api/invitations/5", {"status": "ACCEPTED"}),
+        ])
+
+    def test_a_saved_database_is_tested_as_saved_unless_details_are_given(self):
+        self.assertEqual(self.api.test_connection(5), "Connected to PostgreSQL 16.4 in 9 ms")
+        with self.assertRaises(ApiError) as caught:
+            self.api.test_new_connection({"host": "localhost", "port": 5439})
+        self.assertEqual(caught.exception.status, 502)
+        self.assertEqual([request[:2] + request[3:] for request in FakeBackend.requests], [
+            ("POST", "/api/db-connections/5/test", None),
+            ("POST", "/api/db-connections/test", {"host": "localhost", "port": 5439}),
+        ])
 
     def test_numbers_with_a_fraction_stay_exact(self):
         result = self.api.run_query(1, "SELECT price FROM items")

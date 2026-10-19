@@ -49,8 +49,11 @@ class ApiClient:
         return data
 
     def register(self, username, email, password):
-        data = self._request("POST", "/api/auth/register",
-                             {"username": username, "email": email, "password": password})
+        """email is optional (None or empty): an account needs one only to become premium."""
+        body = {"username": username, "password": password}
+        if email:
+            body["email"] = email
+        data = self._request("POST", "/api/auth/register", body)
         self._store_session(data)
         return data
 
@@ -62,6 +65,16 @@ class ApiClient:
             self._request("POST", "/api/auth/logout", timeout=LOGOUT_TIMEOUT_SECONDS)
         finally:
             self._clear_session()
+
+    # ---------------- Account ----------------
+    def account(self):
+        """The signed-in account: {"id", "username", "email" (None when registered without one), ...}"""
+        return self._request("GET", f"/api/users/{self.user_id}")
+
+    def delete_account(self, password):
+        """Delete the signed-in account for good (the password is asked again). The session ends with it."""
+        self._request("DELETE", f"/api/users/{self.user_id}", {"password": password})
+        self._clear_session()
 
     # ---------------- Databases ----------------
     def list_connections(self):
@@ -76,6 +89,17 @@ class ApiClient:
     def delete_connection(self, connection_id):
         self._request("DELETE", f"/api/db-connections/{connection_id}")
 
+    def test_new_connection(self, details):
+        """Can the server reach a database that is not saved yet? Returns what answered; a database
+        it cannot reach raises ApiError with status 502."""
+        return (self._request("POST", "/api/db-connections/test", details) or {}).get("message", "")
+
+    def test_connection(self, connection_id, details=None):
+        """The same for a saved database (owner only): as saved, or with the edited details - leave
+        dbPassword out of them to use the stored password."""
+        data = self._request("POST", f"/api/db-connections/{connection_id}/test", details)
+        return (data or {}).get("message", "")
+
     def get_schema(self, connection_id):
         return self._request("GET", f"/api/db-connections/{connection_id}/schema") or []
 
@@ -88,6 +112,40 @@ class ApiClient:
     def run_script(self, connection_id, sql):
         """Run ';'-separated statements in one transaction; returns {"results": [...], "durationMs": n}"""
         return self._request("POST", f"/api/db-connections/{connection_id}/script", {"sql": sql})
+
+    # ---------------- Premium ----------------
+    def premium_status(self):
+        """The premium link of the signed-in user ({"connectedEmail", "activatedAt", ...}), or None.
+        Asked every time: an upgrade made after signing in is not in the token's roles."""
+        links = self._request("GET", "/api/premium-users") or []
+        return links[0] if links else None
+
+    def request_premium_code(self, email):
+        """Step 1 of 2: the server mails a six-digit code to this address. Returns its message."""
+        data = self._request("POST", "/api/premium-users/request-code", {"connectedEmail": email})
+        return (data or {}).get("message", "")
+
+    def confirm_premium(self, email, code):
+        """Step 2 of 2: the code that came back makes the account premium."""
+        return self._request("POST", "/api/premium-users/confirm", {"connectedEmail": email, "code": code})
+
+    # ---------------- Sharing ----------------
+    def list_permissions(self):
+        """What an invitation can grant: [{"id", "name": "SELECT_ROLE", "description"}, ...]"""
+        return self._request("GET", "/api/additional-roles") or []
+
+    def list_invitations(self):
+        """Invitations the signed-in user sent or received, newest first."""
+        return self._request("GET", "/api/invitations") or []
+
+    def invite(self, connection_id, username, permission_id):
+        """Offer one permission on one of your databases to another user (premium only)."""
+        return self._request("POST", "/api/invitations", {
+            "toUsername": username, "dbConnectionId": connection_id, "additionalRoleId": permission_id})
+
+    def set_invitation_status(self, invitation_id, status):
+        """ACCEPTED or DECLINED by the recipient, REVOKED by the sender."""
+        return self._request("PUT", f"/api/invitations/{invitation_id}", {"status": status})
 
     # ---------------- Plumbing ----------------
     def _store_session(self, data):

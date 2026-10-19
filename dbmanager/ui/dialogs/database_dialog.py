@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, 
 from dbmanager.api import DB_TYPES, DEFAULT_PORTS, ApiError, parse_port
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.icons import app_icon
-from dbmanager.ui.common.message_box import show_styled_message
+from dbmanager.ui.common.message_box import confirm, show_styled_message
 
 
 class InputDatabaseWindow(QDialog):
@@ -12,15 +12,21 @@ class InputDatabaseWindow(QDialog):
 
     on_submit(details) is called when the user confirms; if it raises ApiError the
     message is shown and the dialog stays open so the input can be corrected.
+
+    on_test(details) asks the server whether it can reach the database with these details, returning
+    what answered or raising ApiError. With it the dialog gets a Test button, and settings the server
+    cannot reach are only saved when the user insists.
     """
 
-    def __init__(self, parent=None, title="New Database", connection=None, button_text="Connect", on_submit=None):
+    def __init__(self, parent=None, title="New Database", connection=None, button_text="Connect", on_submit=None,
+                 on_test=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setWindowIcon(app_icon())
-        self.setFixedSize(420, 540)
+        self.setFixedSize(420, 580)
         self.return_data = None
         self.on_submit = on_submit
+        self.on_test = on_test
         self.editing = connection is not None
 
         # Remove window frame for cleaner look
@@ -127,9 +133,36 @@ class InputDatabaseWindow(QDialog):
 
         layout.addStretch()
 
+        # What the last connection test said
+        self.test_status = QLabel("")
+        self.test_status.setWordWrap(True)
+        layout.addWidget(self.test_status)
+
         # Buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(12)
+
+        if on_test:
+            test_btn = QPushButton("Test")
+            test_btn.setToolTip("Check that the server can reach this database, without saving anything")
+            test_btn.setFixedSize(90, 42)
+            test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            test_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: transparent;
+                    color: #38bdf8;
+                    border: 2px solid #0ea5e9;
+                    border-radius: 10px;
+                    font-size: 14px;
+                    font-weight: 500;
+                }
+                QPushButton:hover {
+                    background-color: #0c4a6e;
+                    color: #f1f5f9;
+                }
+            """)
+            test_btn.clicked.connect(self.test_connection)
+            btn_layout.addWidget(test_btn)
 
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setFixedSize(100, 42)
@@ -198,7 +231,8 @@ class InputDatabaseWindow(QDialog):
     def _error(self, text):
         show_styled_message(self, "Database", text, QMessageBox.Icon.Warning)
 
-    def accept(self):
+    def _details(self):
+        """The form as API details, or None (after saying why) when something is missing"""
         host = self.host_input.text().strip()
         port = self.port_input.text().strip()
         name = self.name_input.text().strip()
@@ -207,14 +241,14 @@ class InputDatabaseWindow(QDialog):
 
         if not host or not name or not user:
             self._error("Please fill in host, database name and username.")
-            return
+            return None
         port = parse_port(port)
         if port is None:
             self._error("Port must be a number between 1 and 65535.")
-            return
+            return None
         if not password and not self.editing:
             self._error("Please enter the database password.")
-            return
+            return None
 
         details = {
             "host": host,
@@ -225,6 +259,40 @@ class InputDatabaseWindow(QDialog):
         }
         if password:
             details["dbPassword"] = password
+        return details
+
+    def _test(self, details):
+        """Ask the server to connect with these details. Returns the ApiError, or None when it worked;
+        either way the outcome is shown above the buttons."""
+        try:
+            with busy_cursor():
+                message = self.on_test(details)
+        except ApiError as error:
+            self.test_status.setText(f"✗ {error}")
+            self.test_status.setStyleSheet("color: #fca5a5; font-size: 12px; font-weight: 500; background: transparent;")
+            return error
+        self.test_status.setText(f"✓ {message or 'Connected.'}")
+        self.test_status.setStyleSheet("color: #86efac; font-size: 12px; font-weight: 500; background: transparent;")
+        return None
+
+    def test_connection(self):
+        details = self._details()
+        if details is not None:
+            self._test(details)
+
+    def accept(self):
+        details = self._details()
+        if details is None:
+            return
+
+        if self.on_test:
+            error = self._test(details)
+            # 502: the settings are fine as far as the server can tell, but nothing answered - perhaps
+            # only for now. Anything else (a refused value, a lost session) would fail the save too.
+            if error is not None and (error.status != 502 or not confirm(
+                    self, "Database Not Reachable",
+                    f"The server could not connect to this database:\n{error}\n\nSave these settings anyway?")):
+                return
 
         if self.on_submit:
             try:

@@ -105,6 +105,14 @@ class SignInWindow(AuthWindow):
         self.password.clear()
         self.open_dashboard(api, self.saveGeometry())
 
+    def forget(self, username):
+        """A deleted account is not offered again"""
+        if self.settings.value("remembered_username", "") == username:
+            self.settings.remove("remembered_username")
+            self.remember.setChecked(False)
+        if self.username.text().strip() == username:
+            self.username.clear()
+
     def open_dashboard(self, api, geometry, from_window=None):
         """Show the dashboard for a signed-in session; logging out comes back here."""
         self.dashboard_window = DashboardWindow(api, self, geometry)
