@@ -1,13 +1,14 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-    QWidget
+    QDialog, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton, QToolButton, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget
 )
 
 from dbmanager.api import ApiError, describe_connection
 from dbmanager.config import TABLE_PREVIEW_ROWS
 from dbmanager.model.change_script import build_change_script
+from dbmanager.model.sharing import describe_permissions
 from dbmanager.sql.identifiers import quote_identifier
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.message_box import confirm, show_styled_message
@@ -18,6 +19,22 @@ from dbmanager.ui.table_editor.table_details_page import TableDetailsPage
 ROLE = Qt.ItemDataRole.UserRole
 NAME = Qt.ItemDataRole.UserRole + 1
 CONNECTION_ID = Qt.ItemDataRole.UserRole + 2
+
+
+# What the ⋮ menu of a database you own offers: (key, text)
+DATABASE_ACTIONS = [
+    ("edit", "Edit connection…"),
+    ("test", "Test connection"),
+    ("share", "Share…"),
+    ("delete", "Delete…"),
+]
+
+MENU_STYLE = """
+    QMenu { background-color: #FFFFFF; color: #2D3748; border: 1px solid #CBD5E0; padding: 4px; font-size: 13px; }
+    QMenu::item { padding: 6px 18px; border-radius: 4px; }
+    QMenu::item:selected { background-color: #3777f0; color: white; }
+    QMenu::separator { height: 1px; background: #E2E8F0; margin: 4px 6px; }
+"""
 
 
 def _table_item_text(name, view=False, dropping=False):
@@ -43,8 +60,13 @@ class SideBar(QWidget):
 
     Edits made in the table pages are collected here into one SQL script per database and shown
     in the SQL panel; Run Query sends it, and the database is then read back.
+
+    A database you own has Share and a ⋮ menu (also on right-click): edit or test its connection,
+    share it, delete it. Share asks the dashboard to share it (share_requested carries the connection).
     """
     logout_requested = pyqtSignal()
+    share_requested = pyqtSignal(object)
+    databases_reloaded = pyqtSignal()
 
     def __init__(self, stack_widget, diagram_page, api=None, sql_builder=None):
         super().__init__()
@@ -57,6 +79,8 @@ class SideBar(QWidget):
         # links: PK-FK links drawn on the diagram; db_links: the foreign keys the database already has
         self.databases = {}
         self.active_db = None
+        # connection_id -> (owner's username, [permission names]) for the databases shared with the user
+        self.shares = {}
 
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
@@ -214,6 +238,15 @@ class SideBar(QWidget):
         current_ids = {connection["id"] for connection in connections}
         for connection_id in [key for key in self.databases if key not in current_ids]:
             self._remove_database(connection_id)
+        self.databases_reloaded.emit()
+
+    def describe_shares(self, shares):
+        """Who shared each shared database, and what the user may do there (see shares_by_connection)"""
+        self.shares = shares
+        for entry in self.databases.values():
+            widget = self.db_tree.itemWidget(entry["item"], 0)
+            if widget is not None:
+                widget.setToolTip(self._db_tooltip(entry["connection"]))
 
     def _is_owner(self, connection):
         return self.api is not None and connection.get("ownerUserId") == self.api.user_id
@@ -251,11 +284,19 @@ class SideBar(QWidget):
         if connection["id"] == self.active_db and self.sql_builder:
             self.sql_builder.set_connection(connection)
 
+    def _db_tooltip(self, connection):
+        if self._is_owner(connection):
+            return describe_connection(connection) + "\nDouble-click to edit, Delete to remove, Share to invite others"
+        owner, permissions = self.shares.get(connection["id"], (None, []))
+        hint = f"Shared with you by {owner}" if owner else "Shared with you"
+        if permissions:
+            hint += f" - you may {describe_permissions(permissions)}"
+        return describe_connection(connection) + "\n" + hint
+
     def _create_db_widget(self, connection):
         shared = not self._is_owner(connection)
         widget = QFrame()
-        widget.setToolTip(describe_connection(connection) + ("\nShared with you" if shared else
-                                                             "\nDouble-click to edit, Delete to remove"))
+        widget.setToolTip(self._db_tooltip(connection))
         widget.setStyleSheet(f"""
             QFrame {{
                 background-color: {'#0ea5e9' if shared else '#3777f0'};
@@ -279,7 +320,77 @@ class SideBar(QWidget):
             badge = QLabel("shared")
             badge.setStyleSheet("color: white; font-size: 10px; background: transparent;")
             layout.addWidget(badge)
+        else:
+            share = QPushButton("Share")
+            share.setToolTip("Invite other users to this database")
+            share.setCursor(Qt.CursorShape.PointingHandCursor)
+            share.setStyleSheet("""
+                QPushButton {
+                    color: white;
+                    background: transparent;
+                    border: 1px solid rgba(255, 255, 255, 0.7);
+                    border-radius: 4px;
+                    padding: 0px 6px;
+                    margin: 0px;
+                    font-size: 10px;
+                }
+                QPushButton:hover { background: rgba(255, 255, 255, 0.25); }
+            """)
+            share.clicked.connect(lambda: self.share_requested.emit(connection))
+            layout.addWidget(share)
+
+            more = QToolButton()
+            more.setText("⋮")
+            more.setToolTip("Edit, test, share or delete this database")
+            more.setCursor(Qt.CursorShape.PointingHandCursor)
+            more.setStyleSheet("""
+                QToolButton {
+                    color: white;
+                    background: transparent;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 0px 4px;
+                    font-size: 15px;
+                    font-weight: bold;
+                }
+                QToolButton:hover { background: rgba(255, 255, 255, 0.25); }
+            """)
+            more.clicked.connect(lambda: self._open_database_menu(
+                connection["id"], more.mapToGlobal(more.rect().bottomLeft())))
+            layout.addWidget(more)
+
+            widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            widget.customContextMenuRequested.connect(
+                lambda pos: self._open_database_menu(connection["id"], widget.mapToGlobal(pos)))
         return widget
+
+    def _database_menu(self):
+        """The ⋮ menu of a database you own. Its parent is the sidebar, not the row: Delete removes the row."""
+        menu = QMenu(self)
+        menu.setStyleSheet(MENU_STYLE)
+        for key, text in DATABASE_ACTIONS:
+            if key == "delete":
+                menu.addSeparator()
+            menu.addAction(text).setData(key)
+        return menu
+
+    def _open_database_menu(self, connection_id, global_pos):
+        menu = self._database_menu()
+        # Acted on after the menu has closed: the action may delete the row the menu was opened from
+        chosen = menu.exec(global_pos)
+        menu.deleteLater()
+        if chosen is not None and connection_id in self.databases:
+            self.run_database_action(connection_id, chosen.data())
+
+    def run_database_action(self, connection_id, key):
+        if key == "edit":
+            self.edit_database(connection_id)
+        elif key == "test":
+            self.test_database(connection_id)
+        elif key == "share":
+            self.share_requested.emit(self.databases[connection_id]["connection"])
+        elif key == "delete":
+            self.delete_database(connection_id)
 
     def add_database(self):
         """Register a new database on the server and add it to the tree"""
@@ -290,7 +401,8 @@ class SideBar(QWidget):
             self,
             title="New Database",
             button_text="Connect",
-            on_submit=lambda details: created.update(self.api.create_connection(details))
+            on_submit=lambda details: created.update(self.api.create_connection(details)),
+            on_test=self.api.test_new_connection
         )
         if dialog.exec() != QDialog.DialogCode.Accepted or not created:
             return
@@ -338,9 +450,13 @@ class SideBar(QWidget):
             with busy_cursor():
                 tables = self.api.get_schema(connection_id)
         except ApiError as error:
-            show_styled_message(self, "Database Tables",
-                                f"Could not read the tables of '{entry['connection']['dbName']}':\n{error}",
-                                QMessageBox.Icon.Warning)
+            text = f"Could not read the tables of '{entry['connection']['dbName']}':\n{error}"
+            if error.status == 502 and self._is_owner(entry["connection"]):
+                # Nothing answered: most often a wrong host, port, name or password - offer to fix them
+                if confirm(self, "Database Not Reachable", f"{text}\n\nEdit its connection settings now?"):
+                    self.edit_database(connection_id)
+            else:
+                show_styled_message(self, "Database Tables", text, QMessageBox.Icon.Warning)
             return
 
         entry["schema_loaded"] = True
@@ -634,10 +750,13 @@ class SideBar(QWidget):
 
     def on_tree_double_click(self, item):
         """Double click on a database: edit its connection"""
-        if item.data(0, ROLE) != "database":
-            return
-        connection_id = item.data(0, CONNECTION_ID)
+        if item.data(0, ROLE) == "database":
+            self.edit_database(item.data(0, CONNECTION_ID))
+
+    def edit_database(self, connection_id):
+        """Change where a database you own is, or how to sign in to it; the new settings are tested first"""
         entry = self.databases[connection_id]
+        item = entry["item"]
         if not self._is_owner(entry["connection"]):
             show_styled_message(self, "Edit Database",
                                 "This database is shared with you - only its owner can change it.",
@@ -650,7 +769,8 @@ class SideBar(QWidget):
             title="Edit Database",
             connection=entry["connection"],
             button_text="Save",
-            on_submit=lambda details: updated.update(self.api.update_connection(connection_id, details))
+            on_submit=lambda details: updated.update(self.api.update_connection(connection_id, details)),
+            on_test=lambda details: self.api.test_connection(connection_id, details)
         )
         if dialog.exec() != QDialog.DialogCode.Accepted or not updated:
             return
@@ -677,7 +797,7 @@ class SideBar(QWidget):
         if role == "table":
             self._delete_table(item)
         elif role == "database":
-            self._delete_database(item)
+            self.delete_database(item.data(0, CONNECTION_ID))
 
     def _delete_table(self, item):
         connection_id = item.parent().data(0, CONNECTION_ID)
@@ -693,17 +813,20 @@ class SideBar(QWidget):
         self.stacked_center.setCurrentWidget(self.diagram)
         self._refresh_change_script(connection_id)
 
-    def _delete_database(self, item):
-        connection_id = item.data(0, CONNECTION_ID)
+    def delete_database(self, connection_id):
+        """Remove a database you own from the account (⋮ → Delete, or the Delete key)"""
         connection = self.databases[connection_id]["connection"]
         if not self._is_owner(connection):
             show_styled_message(self, "Delete Database",
                                 "This database is shared with you - only its owner can remove it.",
                                 QMessageBox.Icon.Warning)
             return
+        unsaved = len(self._pending_statements(connection_id))
         if not confirm(self, "Delete Database",
                        f"Remove '{connection['dbName']}' from your account?\n"
-                       "The database itself is not touched, only the saved connection."):
+                       "The database itself is not touched, only the saved connection.\n"
+                       "Anyone you shared it with loses access."
+                       + (f"\n{unsaved} unsaved change{'s' if unsaved != 1 else ''} will be lost." if unsaved else "")):
             return
         try:
             with busy_cursor():
@@ -712,6 +835,22 @@ class SideBar(QWidget):
             show_styled_message(self, "Delete Database", str(error), QMessageBox.Icon.Warning)
             return
         self._remove_database(connection_id)
+
+    def test_database(self, connection_id):
+        """Ask the server whether it can reach a database you own with its saved settings"""
+        connection = self.databases[connection_id]["connection"]
+        try:
+            with busy_cursor():
+                message = self.api.test_connection(connection_id)
+        except ApiError as error:
+            if error.status == 502 and confirm(self, "Test Connection",
+                                               f"'{connection['dbName']}' cannot be reached:\n{error}\n\n"
+                                               "Edit its connection settings now?"):
+                self.edit_database(connection_id)
+            elif error.status != 502:
+                show_styled_message(self, "Test Connection", str(error), QMessageBox.Icon.Warning)
+            return
+        show_styled_message(self, "Test Connection", f"'{connection['dbName']}' works.\n{message}")
 
     def _toggle_drop(self, connection_id, item, page):
         """Mark a table that exists in the database to be dropped on the next Run (or unmark it)"""

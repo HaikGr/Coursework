@@ -35,7 +35,8 @@ class SignUpWindow(AuthWindow):
         # Account
         self.username = self._line_edit("Username")
         self.card_layout.addWidget(self.username)
-        self.email = self._line_edit("Email")
+        # Only needed to sign in with it: becoming premium verifies an address of its own
+        self.email = self._line_edit("Email (optional)")
         self.card_layout.addWidget(self.email)
         self.password = PasswordField("Password (min. 8 characters)", 330, 40, INPUT_STYLE,
                                       toggle_size=28, icon_size=20)
@@ -125,12 +126,31 @@ class SignUpWindow(AuthWindow):
             "dbType": self.db_type.currentData(),
         }
 
+    def _still_wanted(self, api, connection):
+        """Test the database before adding it: one the server cannot reach is only added if the user says so"""
+        try:
+            with busy_cursor():
+                api.test_new_connection(connection)
+            return True
+        except ApiError as error:
+            if error.status != 502:
+                QMessageBox.warning(self, "Database Not Added",
+                                    f"Your account was created, but the database could not be added:\n{error}\n\n"
+                                    "You can add it from the dashboard with \"+ Add Database\".")
+                return False
+            answer = QMessageBox.question(
+                self, "Database Not Reachable",
+                f"Your account was created, but the server could not connect to the database:\n{error}\n\n"
+                "Add it anyway? You can fix its settings later with ⋮ → Edit connection.\n"
+                "No skips it; add it later with \"+ Add Database\".")
+            return answer == QMessageBox.StandardButton.Yes
+
     def attempt_signup(self):
         username = self.username.text().strip()
         email = self.email.text().strip()
         password = self.password.text()
-        if not username or not email or not password:
-            QMessageBox.warning(self, "Sign Up Error", "Please enter a username, an email and a password.")
+        if not username or not password:
+            QMessageBox.warning(self, "Sign Up Error", "Please enter a username and a password.")
             return
 
         connection = self._connection_details()
@@ -145,7 +165,7 @@ class SignUpWindow(AuthWindow):
             QMessageBox.warning(self, "Sign Up Error", str(error))
             return
 
-        if connection:
+        if connection and self._still_wanted(api, connection):
             try:
                 with busy_cursor():
                     api.create_connection(connection)

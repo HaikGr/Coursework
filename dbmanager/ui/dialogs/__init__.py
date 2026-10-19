@@ -1,1 +1,1 @@
-"""Modal dialogs: database connection, new table, new field, rename."""
+"""Modal dialogs: database connection, new table, new field, rename, delete account."""
