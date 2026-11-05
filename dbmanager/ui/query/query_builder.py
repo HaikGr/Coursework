@@ -1,40 +1,71 @@
-from collections import deque
-
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QTextEdit, QVBoxLayout,
-    QWidget
+    QApplication, QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QTextEdit,
+    QVBoxLayout, QWidget
 )
 
 from dbmanager.api import ApiError
-from dbmanager.sql.identifiers import quote_identifier
+from dbmanager.db import DatabaseError
+from dbmanager.model.query import QueryModel
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.message_box import show_styled_message
-from dbmanager.ui.query.field_tag import SelectedFieldTag
+from dbmanager.ui.common.style import MONOSPACE, shortcut_text
+from dbmanager.ui.query.field_tag import ColumnTag, filter_chip, join_chip
+from dbmanager.ui.query.filter_dialog import FilterDialog
 from dbmanager.ui.query.highlighter import SQLHighlighter
+from dbmanager.ui.query.join_dialog import JoinDialog
 from dbmanager.ui.query.results_window import QueryResultsWindow
+
+# Ctrl+Enter runs; on a Mac Qt reads Ctrl as Cmd, so it is Cmd+Enter there
+RUN_KEYS = ("Ctrl+Return", "Ctrl+Enter")
+_NEXT_SORT = {None: "ASC", "ASC": "DESC", "DESC": None}
+
+_HEADER_BUTTON = """
+    QPushButton {
+        background-color: #334155;
+        color: #cbd5e1;
+        border: none;
+        border-radius: 4px;
+        font-size: 10px;
+        padding: 0 8px;
+    }
+    QPushButton:hover { background-color: #475569; color: #f1f5f9; }
+"""
+_HINT_STYLE = "QLabel { color: #64748b; font-size: 10px; background: transparent; padding: 2px 2px 6px 2px; }"
+
+
+def _clear_layout(layout):
+    while layout.count():
+        widget = layout.takeAt(0).widget()
+        if widget is not None:
+            widget.hide()
+            widget.deleteLater()
 
 
 class SQLQueryBuilder(QWidget):
-    # Signal emitted when a field is removed (for syncing with FieldRow visuals)
-    field_removed = pyqtSignal(str, str)  # table_name, field_name
-    fields_cleared = pyqtSignal()  # Emitted when all fields are cleared
+    """The side panel: the SQL that runs, and the query built on the diagram - its columns and its filters.
+
+    The query itself is a QueryModel; the panel shows it and changes it. query_changed tells the diagram which
+    fields to mark and the toolbar which column is selected. The SQL can still be edited by hand: it is only
+    written over when the built query changes."""
+    query_changed = pyqtSignal()
     script_executed = pyqtSignal(list)  # one result per statement, after a successful Run
     discard_requested = pyqtSignal()  # the user wants the unsaved changes thrown away
 
-    def __init__(self, api=None):
+    def __init__(self, db=None):
         super().__init__()
-        self.api = api
+        self.db = db  # DatabaseClient: runs the SQL on the database itself, from this computer
         self.connection = None  # database the query runs against (set by the sidebar)
         self.change_statements = []  # SQL that saves the edits made in the table editor
-        self.builder_query = ""  # SELECT built from the fields picked on the diagram
-        self.selected_fields = []
-        self.group_by_fields = []
-        self.order_by_fields = []  # List of (table, field, direction)
-        self.where_conditions = {}
-        self.table_connections = []
-        self.field_tags = {}
-        self.current_aggregate = None
+        self.model = QueryModel()
+        self.builder_query = ""  # SELECT built from the model
+        self.warnings = []
+        self.selected_key = None  # (table, column) the toolbar's aggregate buttons act on
+        # Set by the sidebar: what the database would refuse in the unsaved changes, checked before a run
+        self.check_before_run = lambda: []
+        # Set by the diagram: {table: [(field, type)]} of the tables on it, which Join… offers
+        self.table_columns = lambda: {}
 
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -64,20 +95,21 @@ class SQLQueryBuilder(QWidget):
         icon_layout.setContentsMargins(0, 0, 0, 0)
         icon_label = QLabel("</>")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setStyleSheet("color: white; font-size: 12px; font-weight: bold; background: transparent;")
+        icon_label.setStyleSheet("QLabel { color: white; font-size: 12px; font-weight: bold; background: transparent; "
+                                 "}")
         icon_layout.addWidget(icon_label)
         header_layout.addWidget(icon_container)
 
         text_container = QWidget()
-        text_container.setStyleSheet("background: transparent;")
+        text_container.setStyleSheet("QWidget { background: transparent; }")
         text_layout = QVBoxLayout(text_container)
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(1)
         title = QLabel("SQL Query Builder")
-        title.setStyleSheet("color: white; font-size: 13px; font-weight: 700; background: transparent;")
+        title.setStyleSheet("QLabel { color: white; font-size: 13px; font-weight: 700; background: transparent; }")
         text_layout.addWidget(title)
         subtitle = QLabel("Visual query construction")
-        subtitle.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 9px; background: transparent;")
+        subtitle.setStyleSheet("QLabel { color: rgba(255,255,255,0.7); font-size: 9px; background: transparent; }")
         text_layout.addWidget(subtitle)
         header_layout.addWidget(text_container)
         header_layout.addStretch()
@@ -86,27 +118,27 @@ class SQLQueryBuilder(QWidget):
 
         # Main content area
         content = QWidget()
-        content.setStyleSheet("background-color: #0f172a;")
+        content.setStyleSheet("QWidget { background-color: #0f172a; }")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(10, 10, 10, 10)
-        content_layout.setSpacing(10)
+        content_layout.setSpacing(8)
 
         # Database the query will run against
         self.connection_label = QLabel()
         self.connection_label.setWordWrap(True)
-        self.connection_label.setStyleSheet("color: #94a3b8; font-size: 10px; background: transparent;")
+        self.connection_label.setStyleSheet("QLabel { color: #94a3b8; font-size: 10px; background: transparent; }")
         content_layout.addWidget(self.connection_label)
-        self.set_connection(None)
 
         # "N unsaved changes" with the way to throw them away next to it
         self.changes_bar = QWidget()
-        self.changes_bar.setStyleSheet("background: transparent;")
+        self.changes_bar.setStyleSheet("QWidget { background: transparent; }")
         changes_layout = QHBoxLayout(self.changes_bar)
         changes_layout.setContentsMargins(0, 0, 0, 0)
         changes_layout.setSpacing(6)
         self.changes_label = QLabel()
         self.changes_label.setWordWrap(True)
-        self.changes_label.setStyleSheet("color: #fbbf24; font-size: 10px; font-weight: 600; background: transparent;")
+        self.changes_label.setStyleSheet("QLabel { color: #fbbf24; font-size: 10px; font-weight: 600; "
+                                         "background: transparent; }")
         changes_layout.addWidget(self.changes_label, stretch=1)
         self.discard_btn = QPushButton("Discard")
         self.discard_btn.setFixedHeight(22)
@@ -131,121 +163,139 @@ class SQLQueryBuilder(QWidget):
 
         # SQL Preview - Auto-scales with content (editable, so generated SQL can be adjusted before running)
         self.sql_editor = QTextEdit()
-        self.sql_editor.setStyleSheet("""
-            QTextEdit {
+        self.sql_editor.setStyleSheet(f"""
+            QTextEdit {{
                 background-color: #1e293b;
                 color: #e2e8f0;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: {MONOSPACE};
                 font-size: 11px;
                 border-radius: 8px;
-                padding: 10px;
+                padding: 8px;
                 border: 1px solid #334155;
-            }
-            QScrollBar:vertical { background: #1e293b; width: 6px; border-radius: 3px; }
-            QScrollBar::handle:vertical { background: #475569; border-radius: 3px; min-height: 20px; }
-            QScrollBar:horizontal { background: #1e293b; height: 6px; border-radius: 3px; }
-            QScrollBar::handle:horizontal { background: #475569; border-radius: 3px; min-width: 20px; }
-            QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
+            }}
+            QScrollBar:vertical {{ background: #1e293b; width: 6px; border-radius: 3px; }}
+            QScrollBar::handle:vertical {{ background: #475569; border-radius: 3px; min-height: 20px; }}
+            QScrollBar:horizontal {{ background: #1e293b; height: 6px; border-radius: 3px; }}
+            QScrollBar::handle:horizontal {{ background: #475569; border-radius: 3px; min-width: 20px; }}
+            QScrollBar::add-line, QScrollBar::sub-line {{ width: 0px; height: 0px; }}
         """)
-        self.sql_editor.setPlaceholderText("Right-click fields in the diagram to build a query, or type SQL here")
+        self.sql_editor.setPlaceholderText("Pick fields or type SQL here")
         self.sql_editor.setAcceptRichText(False)
         self.sql_editor.setMinimumHeight(80)
-        self.sql_editor.setMaximumHeight(300)
+        self.sql_editor.setMaximumHeight(260)
         # documentSizeChanged also fires when the text re-wraps to the editor's final width
         self.sql_editor.document().documentLayout().documentSizeChanged.connect(self._adjust_editor_height)
         self.highlighter = SQLHighlighter(self.sql_editor.document())
         content_layout.addWidget(self.sql_editor)
 
-        # Selected Fields header
-        fields_header = QFrame()
-        fields_header.setStyleSheet("background: transparent;")
-        fields_header_layout = QHBoxLayout(fields_header)
-        fields_header_layout.setContentsMargins(0, 4, 0, 4)
-        fields_header_layout.setSpacing(6)
-
-
-        self.fields_count_label = QLabel("Selected Fields (0)")
-        self.fields_count_label.setStyleSheet("color: #fbbf24; font-size: 11px; font-weight: 700; background: transparent;")
-        fields_header_layout.addWidget(self.fields_count_label)
-        fields_header_layout.addStretch()
-
-        clear_btn = QPushButton("Clear")
-        clear_btn.setFixedSize(45, 20)
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #334155;
-                color: #94a3b8;
-                border: none;
-                border-radius: 4px;
-                font-size: 9px;
+        # What is odd about the query: tables that are not linked, a SUM of text...
+        self.warning_label = QLabel()
+        self.warning_label.setWordWrap(True)
+        self.warning_label.setStyleSheet("""
+            QLabel {
+                color: #fde68a; background-color: #422006; border-left: 3px solid #f59e0b;
+                border-radius: 4px; font-size: 10px; padding: 6px 8px;
             }
-            QPushButton:hover { background-color: #475569; }
         """)
-        clear_btn.setToolTip("Clear the selected fields and the query.\n"
+        self.warning_label.hide()
+        content_layout.addWidget(self.warning_label)
+        # A table nothing joins to the others: choose how, right here
+        self.join_unjoined_btn = QPushButton()
+        self.join_unjoined_btn.setFixedHeight(26)
+        self.join_unjoined_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.join_unjoined_btn.setStyleSheet("""
+            QPushButton { background-color: #0f766e; color: #f0fdfa; border: none; border-radius: 6px;
+                          font-size: 11px; font-weight: 600; padding: 0 10px; }
+            QPushButton:hover { background-color: #0d9488; }
+        """)
+        self.join_unjoined_btn.clicked.connect(
+            lambda: self.edit_join(right_table=self.model.unjoined[0] if self.model.unjoined else None))
+        self.join_unjoined_btn.hide()
+        content_layout.addWidget(self.join_unjoined_btn)
+
+        # Columns and filters, scrolled together
+        lists = QWidget()
+        lists.setStyleSheet("QWidget { background: transparent; }")
+        lists_layout = QVBoxLayout(lists)
+        lists_layout.setContentsMargins(0, 0, 4, 0)
+        lists_layout.setSpacing(4)
+
+        self.columns_title, columns_header = self._section_header()
+        clear_btn = QPushButton("Clear")
+        clear_btn.setFixedHeight(20)
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_btn.setStyleSheet(_HEADER_BUTTON)
+        clear_btn.setToolTip("Start the query again: no columns, filters or options.\n"
                              "Unsaved table changes stay - use Discard to drop them.")
         clear_btn.clicked.connect(self.clear_query)
-        fields_header_layout.addWidget(clear_btn)
+        columns_header.layout().addWidget(clear_btn)
+        lists_layout.addWidget(columns_header)
+        self.columns_hint = QLabel("Click the circle at the end of a field on the diagram to add it here - "
+                                   "or right-click the field for more.")
+        self.columns_hint.setWordWrap(True)
+        self.columns_hint.setStyleSheet(_HINT_STYLE)
+        lists_layout.addWidget(self.columns_hint)
+        self.columns_layout = QVBoxLayout()
+        self.columns_layout.setSpacing(4)
+        lists_layout.addLayout(self.columns_layout)
 
-        content_layout.addWidget(fields_header)
+        self.joins_title, joins_header = self._section_header()
+        self.add_join_btn = QPushButton("+ Join")
+        self.add_join_btn.setFixedHeight(20)
+        self.add_join_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.add_join_btn.setStyleSheet(_HEADER_BUTTON)
+        self.add_join_btn.setToolTip("Join two tables on fields of your choice, or keep the rows that match nothing\n"
+                                     "(LEFT JOIN) - for this query only, the database is not changed")
+        self.add_join_btn.clicked.connect(lambda: self.edit_join())
+        joins_header.layout().addWidget(self.add_join_btn)
+        lists_layout.addSpacing(6)
+        lists_layout.addWidget(joins_header)
+        self.joins_hint = QLabel("Tables are joined along the links of the diagram. + Join joins them on other "
+                                 "fields, or keeps rows without a match.")
+        self.joins_hint.setWordWrap(True)
+        self.joins_hint.setStyleSheet(_HINT_STYLE)
+        lists_layout.addWidget(self.joins_hint)
+        self.joins_layout = QVBoxLayout()
+        self.joins_layout.setSpacing(4)
+        lists_layout.addLayout(self.joins_layout)
 
-        # Field tags container - scroll area for many fields
-        fields_scroll = QScrollArea()
-        fields_scroll.setWidgetResizable(True)
-        fields_scroll.setStyleSheet("""
-            QScrollArea {
-                background: transparent;
-                border: none;
-            }
-            QScrollBar:vertical {
-                background: #1e293b;
-                width: 6px;
-                border-radius: 3px;
-            }
-            QScrollBar::handle:vertical {
-                background: #475569;
-                border-radius: 3px;
-                min-height: 20px;
-            }
-            QScrollBar::add-line, QScrollBar::sub-line {
-                height: 0px;
-            }
+        self.filters_title, filters_header = self._section_header()
+        self.match_btn = QPushButton()
+        self.match_btn.setFixedHeight(20)
+        self.match_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.match_btn.setStyleSheet(_HEADER_BUTTON)
+        self.match_btn.setToolTip("All: a row must pass every filter (AND).\nAny: passing one of them is enough (OR).")
+        self.match_btn.clicked.connect(lambda: self.set_match_any(not self.model.match_any))
+        filters_header.layout().addWidget(self.match_btn)
+        lists_layout.addSpacing(6)
+        lists_layout.addWidget(filters_header)
+        self.filters_hint = QLabel("Right-click a field on the diagram and choose Add filter… "
+                                   "to keep only the rows you need.")
+        self.filters_hint.setWordWrap(True)
+        self.filters_hint.setStyleSheet(_HINT_STYLE)
+        lists_layout.addWidget(self.filters_hint)
+        self.filters_layout = QVBoxLayout()
+        self.filters_layout.setSpacing(4)
+        lists_layout.addLayout(self.filters_layout)
+        lists_layout.addStretch()
+
+        lists_scroll = QScrollArea()
+        lists_scroll.setWidgetResizable(True)
+        lists_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        lists_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        lists_scroll.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical { background: #1e293b; width: 6px; border-radius: 3px; }
+            QScrollBar::handle:vertical { background: #475569; border-radius: 3px; min-height: 20px; }
+            QScrollBar::add-line, QScrollBar::sub-line { height: 0px; }
         """)
+        lists_scroll.setWidget(lists)
+        content_layout.addWidget(lists_scroll, stretch=3)
 
-        self.fields_container = QWidget()
-        self.fields_container.setStyleSheet("background: transparent;")
-        self.fields_layout = QVBoxLayout(self.fields_container)
-        self.fields_layout.setContentsMargins(0, 0, 0, 0)
-        self.fields_layout.setSpacing(4)  # Tight spacing between field tags
-        self.fields_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-        fields_scroll.setWidget(self.fields_container)
-        content_layout.addWidget(fields_scroll, stretch=3)
-
-        # Copy button
-        copy_btn = QPushButton("Copy Query")
-        copy_btn.setFixedHeight(34)
-        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        copy_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #1e293b;
-                color: #94a3b8;
-                border: 1px solid #334155;
-                border-radius: 8px;
-                font-size: 11px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #334155;
-                color: #e2e8f0;
-            }
-        """)
-        copy_btn.clicked.connect(self.copy_query)
-
-        # Run button
         run_btn = QPushButton("▶  Run Query")
         run_btn.setFixedHeight(38)
         run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        run_btn.setToolTip(f"Run everything in the editor above ({shortcut_text(RUN_KEYS[0])})")
         run_btn.setStyleSheet("""
             QPushButton {
                 background-color: #3b82f6;
@@ -261,19 +311,60 @@ class SQLQueryBuilder(QWidget):
         """)
         run_btn.clicked.connect(self.run_query)
         content_layout.addWidget(run_btn)
-        content_layout.addWidget(copy_btn)
+        for keys in RUN_KEYS:
+            shortcut = QShortcut(QKeySequence(keys), self)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(self.run_query)
+
+        self.copy_btn = QPushButton("Copy Query")
+        self.copy_btn.setFixedHeight(34)
+        self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.copy_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1e293b;
+                color: #94a3b8;
+                border: 1px solid #334155;
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+                color: #e2e8f0;
+            }
+        """)
+        self.copy_btn.clicked.connect(self.copy_query)
+        content_layout.addWidget(self.copy_btn)
+        self._copied_timer = QTimer(self)  # "Copied ✓" turns back into "Copy Query"
+        self._copied_timer.setSingleShot(True)
+        self._copied_timer.timeout.connect(lambda: self.copy_btn.setText("Copy Query"))
 
         main_layout.addWidget(content)
+        self.set_connection(None)
+        self._refresh(render=True)
+
+    @staticmethod
+    def _section_header():
+        header = QWidget()
+        header.setStyleSheet("QWidget { background: transparent; }")
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setSpacing(6)
+        title = QLabel()
+        title.setStyleSheet("QLabel { color: #fbbf24; font-size: 11px; font-weight: 700; background: transparent; }")
+        layout.addWidget(title)
+        layout.addStretch()
+        return title, header
 
     def _adjust_editor_height(self):
         """Auto-scale SQL editor height based on content"""
         doc_height = self.sql_editor.document().size().height()
-        new_height = max(80, min(300, int(doc_height + 30)))
+        new_height = max(80, min(260, int(doc_height + 24)))
         self.sql_editor.setFixedHeight(new_height)
 
-    def set_aggregate(self, agg_name):
-        """Set the current aggregate function (called from Toolbar)"""
-        self.current_aggregate = agg_name if agg_name else None
+    # ---------------- The database ----------------
+    def _db_type(self):
+        return self.connection["dbType"] if self.connection else None
 
     def set_connection(self, connection):
         """Select the database (API connection dict, or None) the query runs against"""
@@ -282,133 +373,244 @@ class SQLQueryBuilder(QWidget):
             self.connection_label.setText(f"Database: {connection['dbName']}  ({connection['dbType']})")
         else:
             self.connection_label.setText("No database selected - pick one in the sidebar")
+        self._refresh()  # names are quoted the way this database reads them
 
     def set_connections(self, connections):
-        self.table_connections = []
-        for pk_field, fk_field, relation_type in connections:
-            pk_table = pk_field.table_card.table_name
-            pk_field_name = pk_field.field_data[0]
-            fk_table = fk_field.table_card.table_name
-            fk_field_name = fk_field.field_data[0]
-            self.table_connections.append((pk_table, pk_field_name, fk_table, fk_field_name))
-        # Only regenerate when the builder owns the text - keep SQL the user typed by hand
-        if self.selected_fields:
-            self._update_query()
+        """The PK-FK links drawn on the diagram: [(pk row, fk row, relation)]. Tables are joined along them."""
+        self.model.links = [(pk.table_card.table_name, pk.field_data[0], fk.table_card.table_name, fk.field_data[0])
+                            for pk, fk, _ in connections]
+        self._changed()
 
-    def add_field(self, table_name, field_name, field_type):
-        for tbl, fld, ftype in self.selected_fields:
-            if tbl == table_name and fld == field_name:
-                return False  # Already exists
+    @property
+    def table_connections(self):
+        return self.model.links
 
-        self.selected_fields.append((table_name, field_name, field_type))
-        self._add_field_tag(table_name, field_name)
-        self._update_query()
-        return True  # Added successfully
-
-    def remove_field(self, table_name, field_name, emit_signal=True):
-        """Remove a field from the query (with its GROUP BY, ORDER BY and WHERE parts)"""
-        key = (table_name, field_name)
-        if not self.is_field_selected(table_name, field_name):
+    # ---------------- Columns ----------------
+    def add_field(self, table_name, field_name, type_name=""):
+        """Add a column to the query and select it; False when it is in the query already"""
+        entry = self.model.add_column(table_name, field_name, type_name)
+        if entry is None:
             return False
+        self.selected_key = entry.key
+        self._changed()
+        return True
 
-        # Remove from selected fields
-        self.selected_fields = [
-            (t, f, ft) for t, f, ft in self.selected_fields
-            if not (t == table_name and f == field_name)
-        ]
+    def remove_field(self, table_name, field_name):
+        """Take a column out of the query (its sort goes with it; its filters stay)"""
+        if not self.model.remove_column(table_name, field_name):
+            return False
+        if self.selected_key == (table_name, field_name):
+            self.selected_key = self.model.columns[-1].key if self.model.columns else None
+        self._changed()
+        return True
 
-        # Remove from group by
-        if key in self.group_by_fields:
-            self.group_by_fields.remove(key)
-
-        # Remove from order by
-        self.order_by_fields = [
-            (t, f, d) for t, f, d in self.order_by_fields
-            if not (t == table_name and f == field_name)
-        ]
-
-        # Remove condition
-        if key in self.where_conditions:
-            del self.where_conditions[key]
-
-        # Remove tag widget
-        if key in self.field_tags:
-            tag = self.field_tags.pop(key)
-            self.fields_layout.removeWidget(tag)
-            tag.deleteLater()
-
-        # Update count
-        count = len(self.selected_fields)
-        self.fields_count_label.setText(f"Selected Fields ({count})")
-
-        self._update_query()
-
-        # Emit signal to sync visual state
-        if emit_signal:
-            self.field_removed.emit(table_name, field_name)
-
-        return True  # Removed successfully
-
-    def toggle_field(self, table_name, field_name, field_type):
+    def toggle_field(self, table_name, field_name, type_name=""):
         """Add the field if it is not in the query, remove it otherwise; True when it was added"""
         if self.is_field_selected(table_name, field_name):
             self.remove_field(table_name, field_name)
             return False
-        self.add_field(table_name, field_name, field_type)
+        self.add_field(table_name, field_name, type_name)
         return True
 
     def is_field_selected(self, table_name, field_name):
-        return any(t == table_name and f == field_name for t, f, _ in self.selected_fields)
+        return self.model.column(table_name, field_name) is not None
 
-    def add_condition(self, table_name, field_name, condition):
-        key = (table_name, field_name)
-        self.where_conditions[key] = condition
-        self._update_query()
+    def selected_column(self):
+        """The column the toolbar acts on, or None"""
+        return self.model.column(*self.selected_key) if self.selected_key else None
 
-    def _add_field_tag(self, table_name, field_name):
-        tag = SelectedFieldTag(table_name, field_name)
-        tag.removed.connect(self._remove_field_tag)
-        tag.group_by_toggled.connect(self._on_group_by_toggled)
-        tag.order_by_toggled.connect(self._on_order_by_toggled)
+    def select_column(self, key):
+        if key != self.selected_key:
+            self.selected_key = key
+            self._changed()
 
-        # Apply current aggregate if any
-        if self.current_aggregate:
-            tag.set_aggregate(self.current_aggregate)
+    def set_aggregate(self, aggregate):
+        """From the toolbar: summarise the selected column ("" or None: show it as it is). False with no column."""
+        entry = self.selected_column()
+        if entry is None:
+            return False
+        self.model.set_aggregate(entry.table, entry.column, aggregate or None)
+        self._changed()
+        return True
 
-        self.fields_layout.addWidget(tag)
-        self.field_tags[(table_name, field_name)] = tag
+    def set_column_aggregate(self, table_name, field_name, aggregate, type_name=""):
+        """Summarise a column, adding it to the query first if needed"""
+        self.model.add_column(table_name, field_name, type_name)
+        self.model.set_aggregate(table_name, field_name, aggregate)
+        self.selected_key = (table_name, field_name)
+        self._changed()
 
-        count = len(self.selected_fields)
-        self.fields_count_label.setText(f"Selected Fields ({count})")
+    def set_column_sort(self, table_name, field_name, direction, type_name=""):
+        """Sort by a column ("ASC", "DESC" or None), adding it to the query first if needed"""
+        self.model.add_column(table_name, field_name, type_name)
+        self.model.set_sort(table_name, field_name, direction)
+        self._changed()
 
-    def _remove_field_tag(self, tag):
-        self.remove_field(tag.table_name, tag.field_name)
+    def _on_aggregate_chosen(self, key, aggregate):
+        self.model.set_aggregate(*key, aggregate)
+        self.selected_key = key
+        self._changed()
 
-    def _on_group_by_toggled(self, tag):
-        key = (tag.table_name, tag.field_name)
-        if tag.is_grouped:
-            if key not in self.group_by_fields:
-                self.group_by_fields.append(key)
+    def _cycle_sort(self, key):
+        self.model.set_sort(*key, _NEXT_SORT[self.model.column(*key).sort])
+        self.selected_key = key
+        self._changed()
+
+    # ---------------- Options ----------------
+    def set_count_rows(self, on):
+        self.model.count_rows = bool(on)
+        self._changed()
+
+    def set_distinct(self, on):
+        self.model.distinct = bool(on)
+        self._changed()
+
+    def set_limit(self, rows):
+        self.model.limit = max(0, int(rows))
+        self._changed()
+
+    def set_match_any(self, on):
+        self.model.match_any = bool(on)
+        self._changed()
+
+    # ---------------- Filters ----------------
+    def add_filter(self, condition):
+        self.model.add_filter(condition)
+        self._changed()
+
+    def edit_filter(self, table_name, field_name, type_name="", index=None):
+        """Ask for a new filter on a column, or a change to the one at index. True when the query changed."""
+        existing = self.model.filters[index] if index is not None else None
+        entry = self.model.column(table_name, field_name)
+        dialog = FilterDialog(self.window(), table_name, field_name, type_name, self._db_type(), existing,
+                              aggregate=entry.aggregate if entry else None)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        if dialog.removed:
+            self.model.remove_filter(index)
+        elif index is None:
+            self.model.add_filter(dialog.result)
         else:
-            if key in self.group_by_fields:
-                self.group_by_fields.remove(key)
-        self._update_query()
+            self.model.replace_filter(index, dialog.result)
+        self._changed()
+        return True
 
-    def _on_order_by_toggled(self, tag, direction):
-        key = (tag.table_name, tag.field_name)
-        # Remove existing order for this field
-        self.order_by_fields = [(t, f, d) for t, f, d in self.order_by_fields if not (t == key[0] and f == key[1])]
-        # Add new order if direction is set
-        if direction:
-            self.order_by_fields.append((key[0], key[1], direction))
-        self._update_query()
+    def _edit_filter_at(self, index):
+        condition = self.model.filters[index]
+        self.edit_filter(condition.table, condition.column, condition.type_name, index)
 
-    def _q(self, name):
-        """A name quoted for the selected database (bare when no database is selected)"""
-        return quote_identifier(name, self.connection["dbType"]) if self.connection else name
+    def remove_filter(self, index):
+        self.model.remove_filter(index)
+        self._changed()
 
-    def _col(self, table, field):
-        return f"{self._q(table)}.{self._q(field)}"
+    def remove_filters_on(self, table_name, field_name):
+        self.model.remove_filters_on(table_name, field_name)
+        self._changed()
+
+    # ---------------- Joins ----------------
+    def edit_join(self, index=None, right_table=None):
+        """Ask for a join of the query (or a change to the one at index). True when the query changed."""
+        tables = self.table_columns()
+        if len(tables) < 2:
+            show_styled_message(self, "Join Tables", "There are no two tables on the diagram to join.",
+                                QMessageBox.Icon.Warning)
+            return False
+        existing = self.model.joins[index] if index is not None else None
+        dialog = JoinDialog(self.window(), tables, self.model.tables(), self._db_type(), existing=existing,
+                            right_table=right_table)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return False
+        if dialog.removed:
+            self.model.remove_join(index)
+        elif index is None:
+            self.model.add_join(dialog.result)
+        else:
+            self.model.replace_join(index, dialog.result)
+        self._changed()
+        return True
+
+    def add_join(self, join):
+        self.model.add_join(join)
+        self._changed()
+
+    def remove_join(self, index):
+        self.model.remove_join(index)
+        self._changed()
+
+    # ---------------- The schema changed ----------------
+    def rename_column(self, table_name, old_name, new_name):
+        self.model.rename_column(table_name, old_name, new_name)
+        if self.selected_key == (table_name, old_name):
+            self.selected_key = (table_name, new_name)
+        self._changed()
+
+    def drop_column(self, table_name, field_name):
+        self.model.drop_column(table_name, field_name)
+        self._changed()
+
+    def drop_table(self, table_name):
+        self.model.drop_table(table_name)
+        self._changed()
+
+    def keep_only(self, known):
+        """After the database was read again: forget what it no longer has ({table: {column, ...}})"""
+        if self.model.keep_only(known):
+            self._changed()
+
+    # ---------------- Showing the query ----------------
+    def _changed(self):
+        self._refresh()
+        self.query_changed.emit()
+
+    def _refresh(self, render=False):
+        """Build the SQL again and show the columns and filters. The editor is written over only when the
+        built query is or was something: SQL typed by hand stays while nothing is picked."""
+        previous = self.builder_query
+        self.builder_query, self.warnings = self.model.build(self._db_type())
+        if self.selected_key and self.model.column(*self.selected_key) is None:
+            self.selected_key = None
+        if render or self.builder_query or previous:
+            self._render_editor()
+        self.warning_label.setText("\n\n".join(self.warnings))
+        self.warning_label.setVisible(bool(self.warnings))
+        if self.model.unjoined:
+            self.join_unjoined_btn.setText(f"Join {self.model.unjoined[0]}…")
+        self.join_unjoined_btn.setVisible(bool(self.model.unjoined))
+        self._render_lists()
+
+    def _render_lists(self):
+        _clear_layout(self.columns_layout)
+        for entry in self.model.columns:
+            tag = ColumnTag(entry, grouped=self.model.is_group_key(*entry.key),
+                            rank=self.model.sort_rank(*entry.key), is_selected=entry.key == self.selected_key)
+            tag.selected.connect(self.select_column)
+            tag.aggregate_chosen.connect(self._on_aggregate_chosen)
+            tag.sort_clicked.connect(self._cycle_sort)
+            tag.remove_clicked.connect(lambda key: self.remove_field(*key))
+            self.columns_layout.addWidget(tag)
+        extra = "  +  row count" if self.model.count_rows and self.model.columns else ""
+        self.columns_title.setText(f"COLUMNS ({len(self.model.columns)}){extra}")
+        self.columns_hint.setVisible(not self.model.columns)
+
+        _clear_layout(self.joins_layout)
+        for index, join in enumerate(self.model.joins):
+            chip = join_chip(index, join)
+            chip.edit_clicked.connect(lambda i: self.edit_join(i))
+            chip.remove_clicked.connect(self.remove_join)
+            self.joins_layout.addWidget(chip)
+        self.joins_title.setText(f"JOINS ({len(self.model.joins)})")
+        self.joins_hint.setVisible(not self.model.joins)
+
+        _clear_layout(self.filters_layout)
+        for index, condition in enumerate(self.model.filters):
+            chip = filter_chip(index, condition)
+            chip.edit_clicked.connect(self._edit_filter_at)
+            chip.remove_clicked.connect(self.remove_filter)
+            self.filters_layout.addWidget(chip)
+        self.filters_title.setText(f"FILTERS ({len(self.model.filters)})")
+        self.filters_hint.setVisible(not self.model.filters)
+        self.match_btn.setText("Match any" if self.model.match_any else "Match all")
+        self.match_btn.setVisible(len(self.model.filters) > 1)
 
     def set_change_script(self, statements):
         """Show the SQL that saves the table editor's edits; Run executes it before any SELECT"""
@@ -425,235 +627,41 @@ class SQLQueryBuilder(QWidget):
             parts.append(self.builder_query)
         self.sql_editor.setPlainText("\n\n".join(parts))
 
-    def _update_query(self):
-        if not self.selected_fields:
-            self.builder_query = ""
-            self._render_editor()
-            return
-
-        # Build SELECT clause with aggregates
-        select_parts = []
-        for t, f, _ in self.selected_fields:
-            tag = self.field_tags.get((t, f))
-            if tag and tag.aggregate:
-                select_parts.append(f"{tag.aggregate}({self._col(t, f)})")
-            else:
-                select_parts.append(self._col(t, f))
-        select_clause = "SELECT " + ",\n       ".join(select_parts)
-
-        # Tables in the order their first field was picked (a set would reorder them between edits)
-        tables = list(dict.fromkeys(t for t, _, _ in self.selected_fields))
-
-        # Build FROM/JOIN
-        if len(tables) == 1:
-            from_clause = f"FROM {self._q(tables[0])}"
-        else:
-            from_clause = self._build_join_clause(tables)
-
-        # WHERE
-        where_clause = ""
-        if self.where_conditions:
-            conditions = [f"{self._col(t, f)} {cond}" for (t, f), cond in self.where_conditions.items()]
-            where_clause = "\nWHERE " + "\n  AND ".join(conditions)
-
-        # GROUP BY
-        group_by_clause = ""
-        if self.group_by_fields:
-            group_parts = [self._col(t, f) for t, f in self.group_by_fields]
-            group_by_clause = "\nGROUP BY " + ", ".join(group_parts)
-
-        # ORDER BY
-        order_by_clause = ""
-        if self.order_by_fields:
-            order_parts = [f"{self._col(t, f)} {d}" for t, f, d in self.order_by_fields]
-            order_by_clause = "\nORDER BY " + ", ".join(order_parts)
-
-        query = f"{select_clause}\n{from_clause}{where_clause}{group_by_clause}{order_by_clause}"
-        self.builder_query = query
-        self._render_editor()
-
-    def _build_join_clause(self, tables):
-        """
-        Build JOIN clause with support for:
-        - Direct relationships (A -> B)
-        - Indirect relationships via intermediate tables (A -> C -> B)
-        - Clear error messages when no relationship exists
-        """
-        if not tables:
-            return ""
-
-        if len(tables) == 1:
-            return f"FROM {self._q(tables[0])}"
-
-        # Build adjacency graph from connections
-        graph = {}  # table -> [(connected_table, pk_table, pk_field, fk_table, fk_field)]
-        for pk_t, pk_f, fk_t, fk_f in self.table_connections:
-            if pk_t not in graph:
-                graph[pk_t] = []
-            if fk_t not in graph:
-                graph[fk_t] = []
-            # Add both directions for traversal
-            graph[pk_t].append((fk_t, pk_t, pk_f, fk_t, fk_f))
-            graph[fk_t].append((pk_t, pk_t, pk_f, fk_t, fk_f))
-
-        result_tables = [tables[0]]
-        joins = []
-        remaining = set(tables[1:])
-        unconnected_tables = []
-
-        while remaining:
-            found = False
-
-            # Try to find direct connection first
-            for r_table in list(remaining):
-                for joined_table in result_tables:
-                    # Check direct connection
-                    connection = self._find_direct_connection(joined_table, r_table)
-                    if connection:
-                        pk_t, pk_f, fk_t, fk_f = connection
-                        if pk_t == joined_table:
-                            joins.append(f"JOIN {self._q(fk_t)} ON {self._col(pk_t, pk_f)} = {self._col(fk_t, fk_f)}")
-                        else:
-                            joins.append(f"JOIN {self._q(pk_t)} ON {self._col(fk_t, fk_f)} = {self._col(pk_t, pk_f)}")
-                        result_tables.append(r_table)
-                        remaining.remove(r_table)
-                        found = True
-                        break
-                if found:
-                    break
-
-            if found:
-                continue
-
-            # Try to find indirect connection via intermediate tables
-            for r_table in list(remaining):
-                path = self._find_path(graph, result_tables, r_table)
-                if path:
-                    # Add intermediate tables and joins
-                    for i in range(len(path) - 1):
-                        from_t = path[i]
-                        to_t = path[i + 1]
-
-                        # Skip if already joined
-                        if to_t in result_tables:
-                            continue
-
-                        connection = self._find_direct_connection(from_t, to_t)
-                        if connection:
-                            pk_t, pk_f, fk_t, fk_f = connection
-                            if pk_t == from_t:
-                                joins.append(f"JOIN {self._q(fk_t)} ON {self._col(pk_t, pk_f)} = {self._col(fk_t, fk_f)}")
-                            else:
-                                joins.append(f"JOIN {self._q(pk_t)} ON {self._col(fk_t, fk_f)} = {self._col(pk_t, pk_f)}")
-                            result_tables.append(to_t)
-
-                    if r_table in result_tables:
-                        remaining.remove(r_table)
-                        found = True
-                        break
-
-            if not found and remaining:
-                # No relationship found - mark as unconnected
-                next_table = remaining.pop()
-                unconnected_tables.append(next_table)
-                result_tables.append(next_table)
-
-        # Build FROM clause
-        from_clause = f"FROM {self._q(result_tables[0])}"
-        if joins:
-            from_clause += "\n" + "\n".join(joins)
-
-        # Add warning comments for unconnected tables
-        if unconnected_tables:
-            from_clause += "\n-- ⚠️ WARNING: No relationship found for: " + ", ".join(unconnected_tables)
-            from_clause += "\n-- Connect these tables in the diagram first!"
-
-        return from_clause
-
-    def _find_direct_connection(self, table1, table2):
-        """Find direct connection between two tables"""
-        for pk_t, pk_f, fk_t, fk_f in self.table_connections:
-            if (pk_t == table1 and fk_t == table2) or (pk_t == table2 and fk_t == table1):
-                return (pk_t, pk_f, fk_t, fk_f)
-        return None
-
-    def _find_path(self, graph, from_tables, to_table):
-        """
-        BFS to find shortest path from any of from_tables to to_table
-        Returns the path including intermediate tables
-        """
-        # Start BFS from all currently joined tables
-        queue = deque()
-        visited = set()
-        parent = {}
-
-        for start in from_tables:
-            if start in graph:
-                queue.append(start)
-                visited.add(start)
-                parent[start] = None
-
-        while queue:
-            current = queue.popleft()
-
-            if current == to_table:
-                # Reconstruct path
-                path = []
-                node = current
-                while node is not None:
-                    path.append(node)
-                    node = parent.get(node)
-                return list(reversed(path))
-
-            # Explore neighbors
-            if current in graph:
-                for neighbor, _, _, _, _ in graph[current]:
-                    if neighbor not in visited:
-                        visited.add(neighbor)
-                        parent[neighbor] = current
-                        queue.append(neighbor)
-
-        return None  # No path found
-
     def clear_query(self):
-        while self.fields_layout.count() > 0:
-            item = self.fields_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self.model.clear()
+        self.selected_key = None
+        self._refresh(render=True)
+        self.query_changed.emit()
 
-        self.selected_fields.clear()
-        self.group_by_fields.clear()
-        self.order_by_fields.clear()
-        self.where_conditions.clear()
-        self.field_tags.clear()
-        self.builder_query = ""
-        self._render_editor()
-        self.fields_count_label.setText("Selected Fields (0)")
-        self.current_aggregate = None
-
-        # Emit signal to sync all field rows
-        self.fields_cleared.emit()
-
+    # ---------------- Copy and run ----------------
     def copy_query(self):
         query = self.sql_editor.toPlainText()
         if query:
             QApplication.clipboard().setText(query)
+            self.copy_btn.setText("Copied ✓")
+            self._copied_timer.start(1500)
 
     def run_query(self):
         sql = self.sql_editor.toPlainText().strip()
         if not sql:
             show_styled_message(self, "Run Query", "There is no query to run yet.", QMessageBox.Icon.Warning)
             return
-        if not self.api or not self.connection:
+        if not self.db or not self.connection:
             show_styled_message(self, "Run Query", "Select a database in the sidebar first.",
                                 QMessageBox.Icon.Warning)
+            return
+        problems = self.check_before_run() if self.change_statements else []
+        if problems:
+            show_styled_message(self, "Not Run Yet", "The database would refuse these changes - nothing was run:\n\n• "
+                                + "\n• ".join(problems), QMessageBox.Icon.Warning)
             return
         connection = self.connection
         try:
             with busy_cursor():
-                result = self.api.run_script(connection["id"], sql)
-        except ApiError as error:
-            show_styled_message(self, "Query Failed", str(error), QMessageBox.Icon.Critical)
+                result = self.db.run_script(connection, sql)
+        except (DatabaseError, ApiError) as error:
+            if not getattr(error, "cancelled", False):
+                show_styled_message(self, "Query Failed", str(error), QMessageBox.Icon.Critical)
             return
         result = result or {}
         results = result.get("results") or []

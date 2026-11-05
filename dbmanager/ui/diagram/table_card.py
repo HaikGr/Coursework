@@ -4,13 +4,14 @@ from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLab
 
 from dbmanager.ui.diagram.field_row import FieldRow, key_flag
 
-HINT_STYLE = "color:#A0AEC0; font-size:11px; padding:6px 12px;"
+HINT_STYLE = "QLabel { color:#A0AEC0; font-size:11px; padding:6px 12px; }"
 
 
 class TableCard(QFrame):
     """A table on the diagram: header, primary keys, foreign keys, the other fields, footer.
-    Dragged by its header or footer."""
+    Dragged by its header or footer; a right-click there asks for the table's menu."""
     moved = pyqtSignal()
+    menu_requested = pyqtSignal(object, object)  # card, global QPoint
 
     def __init__(self, table_name, fields, parent=None):
         super().__init__(parent)
@@ -80,12 +81,12 @@ class TableCard(QFrame):
         layout.setSpacing(6)
 
         drag_icon = QLabel("⋮⋮")
-        drag_icon.setStyleSheet("color: #718096; font-weight:bold; font-size:14px;")
+        drag_icon.setStyleSheet("QLabel { color: #718096; font-weight:bold; font-size:14px; }")
         table_label = QLabel(self.table_name)
-        table_label.setStyleSheet("color: #FFFFFF; font-weight:600; font-size:13px;")
+        table_label.setStyleSheet("QLabel { color: #FFFFFF; font-weight:600; font-size:13px; }")
         table_label.setToolTip(self.table_name)
         status = QLabel("●")
-        status.setStyleSheet("color: #48BB78; font-size:16px;")
+        status.setStyleSheet("QLabel { color: #48BB78; font-size:16px; }")
 
         layout.addWidget(drag_icon)
         layout.addWidget(table_label)
@@ -107,7 +108,7 @@ class TableCard(QFrame):
 
     def _build_rows_section(self, fields, empty_hint):
         container = QWidget()
-        container.setStyleSheet("background-color: #5A6C7D;")
+        container.setStyleSheet("QWidget { background-color: #5A6C7D; }")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -127,7 +128,7 @@ class TableCard(QFrame):
             QScrollBar::handle:vertical:hover {background:#8A95A5;}
         """)
         content = QWidget()
-        content.setStyleSheet("background:transparent;")
+        content.setStyleSheet("QWidget { background:transparent; }")
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -147,9 +148,9 @@ class TableCard(QFrame):
 
         total_fields = len(self.fields)
         count_label = QLabel(f"{total_fields} field{'s' if total_fields != 1 else ''}")
-        count_label.setStyleSheet("color:#A0AEC0; font-size:11px;")
+        count_label.setStyleSheet("QLabel { color:#A0AEC0; font-size:11px; }")
         action_label = QLabel("Drag here to move")
-        action_label.setStyleSheet("color:#718096; font-size:11px;")
+        action_label.setStyleSheet("QLabel { color:#718096; font-size:11px; }")
         action_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         layout.addWidget(count_label)
@@ -242,6 +243,13 @@ class TableCard(QFrame):
             return
         # Let the event reach the field rows
         super().mousePressEvent(event)
+
+    def contextMenuEvent(self, event):
+        if self.is_click_on_draggable_area(event.pos()):
+            self.menu_requested.emit(self, event.globalPos())
+            event.accept()
+            return
+        super().contextMenuEvent(event)
 
     def mouseMoveEvent(self, event):
         if self.is_dragging and self.drag_pos and event.buttons() == Qt.MouseButton.LeftButton:

@@ -1,4 +1,10 @@
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QVBoxLayout
+
+from dbmanager.ui.common.dark_dialog import settle_enter_key
+
+# The width of the field: a short name gets the usual width, a longer one is shown whole up to the most;
+# what goes beyond that scrolls. TEXT_ROOM is the field's padding and border, and room for the cursor.
+FIELD_WIDTH, FIELD_MAX_WIDTH, TEXT_ROOM = 310, 600, 32
 
 
 class RenameDialog(QDialog):
@@ -7,7 +13,6 @@ class RenameDialog(QDialog):
     def __init__(self, parent, title, prompt, current):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setFixedSize(350, 150)
         # QLabel sets its own background: the dialog inherits the style sheet of the page it opens over
         self.setStyleSheet("""
             QDialog { background-color: #1f2937; }
@@ -32,6 +37,8 @@ class RenameDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
+        # As big as what it holds: a fixed size squeezed the padded field until its text was cut in half
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(16)
         layout.addWidget(QLabel(prompt))
@@ -40,6 +47,9 @@ class RenameDialog(QDialog):
         self.line_edit.selectAll()
         self.line_edit.returnPressed.connect(self.accept)
         layout.addWidget(self.line_edit)
+        self.line_edit.ensurePolished()  # in the dialog now: measured in the font its style sheet gives it
+        text_width = self.line_edit.fontMetrics().horizontalAdvance(current) + TEXT_ROOM
+        self.line_edit.setMinimumWidth(min(max(FIELD_WIDTH, text_width), FIELD_MAX_WIDTH))
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -48,12 +58,12 @@ class RenameDialog(QDialog):
                                  "QPushButton:hover { background-color: #6b7280; }")
         cancel_btn.clicked.connect(self.reject)
         ok_btn = QPushButton("Rename")
-        ok_btn.setDefault(True)
         ok_btn.setStyleSheet("QPushButton { background-color: #3777f0; color: white; } "
                              "QPushButton:hover { background-color: #2563eb; }")
         ok_btn.clicked.connect(self.accept)
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(ok_btn)
+        settle_enter_key(self)  # Enter in the field renames, nothing else
         layout.addLayout(btn_layout)
 
 

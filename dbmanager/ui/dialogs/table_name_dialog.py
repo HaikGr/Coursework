@@ -1,6 +1,7 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
 
+from dbmanager.ui.common.dark_dialog import settle_enter_key
 from dbmanager.ui.common.icons import app_icon
 
 
@@ -28,20 +29,24 @@ class InputTableNameWindow(QDialog):
         # Header
         header = QLabel("Create New Table")
         header.setStyleSheet("""
-            color: #f1f5f9;
-            font-size: 18px;
-            font-weight: bold;
-            background: transparent;
+            QLabel {
+                color: #f1f5f9;
+                font-size: 18px;
+                font-weight: bold;
+                background: transparent;
+            }
         """)
         layout.addWidget(header)
         
         # Label
         self.name_label = QLabel("Table Name")
         self.name_label.setStyleSheet("""
-            color: #94a3b8;
-            font-size: 12px;
-            font-weight: 600;
-            background: transparent;
+            QLabel {
+                color: #94a3b8;
+                font-size: 12px;
+                font-weight: 600;
+                background: transparent;
+            }
         """)
         layout.addWidget(self.name_label)
         
@@ -111,6 +116,7 @@ class InputTableNameWindow(QDialog):
         btn_layout.addStretch()
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(ok_btn)
+        settle_enter_key(self)  # Enter in the name field creates the table, nothing else
         layout.addLayout(btn_layout)
 
     def accept(self):

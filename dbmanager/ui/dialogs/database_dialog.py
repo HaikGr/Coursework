@@ -2,9 +2,12 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout
 
 from dbmanager.api import DB_TYPES, DEFAULT_PORTS, ApiError, parse_port
+from dbmanager.db import DatabaseError
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.icons import app_icon
 from dbmanager.ui.common.message_box import confirm, show_styled_message
+from dbmanager.ui.common.dark_dialog import settle_enter_key
+from dbmanager.ui.common.style import COMBO_ARROW
 
 
 class InputDatabaseWindow(QDialog):
@@ -13,9 +16,11 @@ class InputDatabaseWindow(QDialog):
     on_submit(details) is called when the user confirms; if it raises ApiError the
     message is shown and the dialog stays open so the input can be corrected.
 
-    on_test(details) asks the server whether it can reach the database with these details, returning
-    what answered or raising ApiError. With it the dialog gets a Test button, and settings the server
-    cannot reach are only saved when the user insists.
+    on_test(details) connects to the database from this computer with these details, returning what
+    answered or raising DatabaseError. With it the dialog gets a Test button, and settings nothing answers
+    on are only saved when the user insists.
+
+    The password goes into details as dbPassword; the server stores it encrypted.
     """
 
     def __init__(self, parent=None, title="New Database", connection=None, button_text="Connect", on_submit=None,
@@ -34,7 +39,7 @@ class InputDatabaseWindow(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
         # Dark theme styling
-        self.setStyleSheet("""
+        self.setStyleSheet(COMBO_ARROW + """
             QDialog {
                 background-color: #1e293b;
                 border: 2px solid #0ea5e9;
@@ -57,7 +62,6 @@ class InputDatabaseWindow(QDialog):
             QLineEdit:focus, QComboBox:focus {
                 border: 2px solid #0ea5e9;
             }
-            QComboBox::drop-down { border: none; width: 24px; }
             QComboBox QAbstractItemView {
                 background-color: #0f172a;
                 color: #f1f5f9;
@@ -72,10 +76,12 @@ class InputDatabaseWindow(QDialog):
         # Header
         header = QLabel(f"{title}")
         header.setStyleSheet("""
-            color: #f1f5f9;
-            font-size: 20px;
-            font-weight: bold;
-            background: transparent;
+            QLabel {
+                color: #f1f5f9;
+                font-size: 20px;
+                font-weight: bold;
+                background: transparent;
+            }
         """)
         layout.addWidget(header)
         layout.addSpacing(8)
@@ -115,7 +121,6 @@ class InputDatabaseWindow(QDialog):
         self.password_input = self._line_edit(
             "Leave empty to keep the current password" if self.editing else "Database password")
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.returnPressed.connect(self.accept)
         self._add_field(layout, "Password", self.password_input)
 
         if connection:
@@ -144,7 +149,7 @@ class InputDatabaseWindow(QDialog):
 
         if on_test:
             test_btn = QPushButton("Test")
-            test_btn.setToolTip("Check that the server can reach this database, without saving anything")
+            test_btn.setToolTip("Check that this computer can reach the database, without saving anything")
             test_btn.setFixedSize(90, 42)
             test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             test_btn.setStyleSheet("""
@@ -204,6 +209,7 @@ class InputDatabaseWindow(QDialog):
         btn_layout.addStretch()
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(ok_btn)
+        settle_enter_key(self, default=ok_btn)  # Enter in any field connects (not Test, not twice)
         layout.addLayout(btn_layout)
 
         self.host_input.setFocus()
@@ -262,17 +268,19 @@ class InputDatabaseWindow(QDialog):
         return details
 
     def _test(self, details):
-        """Ask the server to connect with these details. Returns the ApiError, or None when it worked;
-        either way the outcome is shown above the buttons."""
+        """Connect with these details. Returns the error, or None when it worked; either way the outcome
+        is shown above the buttons."""
         try:
             with busy_cursor():
                 message = self.on_test(details)
-        except ApiError as error:
+        except (DatabaseError, ApiError) as error:
             self.test_status.setText(f"✗ {error}")
-            self.test_status.setStyleSheet("color: #fca5a5; font-size: 12px; font-weight: 500; background: transparent;")
+            self.test_status.setStyleSheet("QLabel { color: #fca5a5; font-size: 12px; font-weight: 500; "
+                                           "background: transparent; }")
             return error
         self.test_status.setText(f"✓ {message or 'Connected.'}")
-        self.test_status.setStyleSheet("color: #86efac; font-size: 12px; font-weight: 500; background: transparent;")
+        self.test_status.setStyleSheet("QLabel { color: #86efac; font-size: 12px; font-weight: 500; "
+                                       "background: transparent; }")
         return None
 
     def test_connection(self):
@@ -287,11 +295,11 @@ class InputDatabaseWindow(QDialog):
 
         if self.on_test:
             error = self._test(details)
-            # 502: the settings are fine as far as the server can tell, but nothing answered - perhaps
-            # only for now. Anything else (a refused value, a lost session) would fail the save too.
-            if error is not None and (error.status != 502 or not confirm(
+            # Nothing answered: perhaps only for now (the database is off, or not on this network).
+            # Anything else (a database type this app cannot open, a lost session) would fail the save too.
+            if error is not None and (not getattr(error, "unreachable", False) or not confirm(
                     self, "Database Not Reachable",
-                    f"The server could not connect to this database:\n{error}\n\nSave these settings anyway?")):
+                    f"This computer could not connect to the database:\n{error}\n\nSave these settings anyway?")):
                 return
 
         if self.on_submit:

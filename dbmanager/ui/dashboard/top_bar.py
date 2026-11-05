@@ -25,12 +25,12 @@ class TopBar(QFrame):
     def __init__(self, username):
         super().__init__()
         self.setFixedHeight(40)
-        self.setStyleSheet("background-color: #3777f0;")
+        self.setStyleSheet("QWidget { background-color: #3777f0; }")
         top_line_layout = QHBoxLayout(self)
         top_line_layout.setContentsMargins(15, 0, 15, 0)
         top_line_layout.setSpacing(10)
         title = QLabel("Database Management System")
-        title.setStyleSheet("color: white; font-size: 18px; font-weight: 600;")
+        title.setStyleSheet("QLabel { color: white; font-size: 18px; font-weight: 600; }")
         top_line_layout.addWidget(title)
         top_line_layout.addStretch()
 

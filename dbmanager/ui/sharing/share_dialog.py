@@ -1,4 +1,8 @@
-"""Share one of your databases: invite a user with the permissions they need, see and revoke access."""
+"""Share one of your databases: invite a user with the permissions they need, see and revoke access.
+
+Each guest gets a login of their own in the database, holding exactly the permissions ticked here, so the
+database itself enforces them (see dbmanager.db.guests). This dialog makes and changes those logins right
+after the invitations change, from this computer - the owner's - which is the one that can reach it."""
 
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLineEdit, QTableWidget, QTableWidgetItem,
@@ -6,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 from dbmanager.api import ApiError, describe_connection
+from dbmanager.db import DatabaseError
 from dbmanager.model.sharing import PERMISSIONS, describe_permissions, permission_label, sent_for_connection
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.icons import app_icon
@@ -17,11 +22,14 @@ STATUS_TEXT = {"PENDING": "waiting for an answer", "ACCEPTED": "has access", "DE
 
 class ShareDatabaseDialog(QDialog):
     """One invitation per ticked permission (that is how the server grants them); the recipient accepts
-    them under Invitations. The table below lists who has, or was offered, access."""
+    them under Invitations. The table below lists who has, or was offered, access.
 
-    def __init__(self, parent, api, connection):
+    db (a DatabaseClient) brings the guest logins in the database in line after every change."""
+
+    def __init__(self, parent, api, connection, db=None):
         super().__init__(parent)
         self.api = api
+        self.db = db
         self.connection = connection
         self.permission_ids = {}
         self.setWindowTitle(f"Share {connection['dbName']}")
@@ -51,7 +59,9 @@ class ShareDatabaseDialog(QDialog):
             self.checkboxes[name] = box
             layout.addWidget(box)
         layout.addWidget(label("Without SELECT they cannot see the tables at all. Changing the structure "
-                               "(CREATE, ALTER, DROP) stays with you.", "note", wrap=True))
+                               "(CREATE, ALTER, DROP) stays with you. They get a database login of their own "
+                               "that holds just this, so your password never leaves this computer.",
+                               "note", wrap=True))
 
         send_row = QHBoxLayout()
         self.status = label("", wrap=True)
@@ -134,23 +144,47 @@ class ShareDatabaseDialog(QDialog):
         with busy_cursor():
             for name in chosen:
                 try:
-                    self.api.invite(self.connection["id"], username, self.permission_ids[name])
-                    sent.append(name)
+                    invitation = self.api.invite(self.connection["id"], username, self.permission_ids[name])
+                    sent.append((name, invitation["id"]))
                 except ApiError as error:
                     if error.status != 400:
                         problems.append(str(error))
                         break  # an unknown user or a lost connection fails every permission the same way
                     problems.append(f"{permission_label(name)}: {error}")
 
+        if sent:
+            failure = self._update_logins()
+            if failure is not None:
+                # A share the database cannot carry out is no share: take the invitations back
+                for _, invitation_id in sent:
+                    try:
+                        self.api.delete_invitation(invitation_id)
+                    except ApiError:
+                        pass
+                show_status(self.status, f"Nothing was shared with {username}: {failure}", error=True)
+                self._reload_list()
+                return
+
         lines = []
         if sent:
-            lines.append(f"Invited {username} to {describe_permissions(sent)}. "
+            lines.append(f"Invited {username} to {describe_permissions(name for name, _ in sent)}. "
                          "They accept it under Invitations.")
             self.username_input.clear()
         lines.extend(problems)
         show_status(self.status, "\n".join(lines), error=bool(problems))
         if sent:
             self._reload_list()
+
+    def _update_logins(self):
+        """Make, re-grant or drop the guest logins in the database; None when it worked, else why not."""
+        if self.db is None:
+            return None
+        try:
+            with busy_cursor():
+                self.db.sync_guests(self.connection)
+        except (DatabaseError, ApiError) as error:
+            return str(error)
+        return None
 
     def revoke(self, invitation):
         who = invitation.get("toUsername")
@@ -163,5 +197,10 @@ class ShareDatabaseDialog(QDialog):
         except ApiError as error:
             show_status(self.status, str(error), error=True)
             return
-        show_status(self.status, f"{who} no longer has {what}.")
+        failure = self._update_logins()
+        if failure is None:
+            show_status(self.status, f"{who} no longer has {what}.")
+        else:
+            show_status(self.status, f"{who} no longer has {what} here, but the database still allows it: {failure}\n"
+                                     "It is taken away the next time you open the database.", error=True)
         self._reload_list()

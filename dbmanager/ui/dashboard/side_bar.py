@@ -7,11 +7,14 @@ from PyQt6.QtWidgets import (
 
 from dbmanager.api import ApiError, describe_connection
 from dbmanager.config import TABLE_PREVIEW_ROWS
-from dbmanager.model.change_script import build_change_script
+from dbmanager.db import DatabaseError
+from dbmanager.model.change_script import build_change_script, references_to
+from dbmanager.model.table_state import schema_column, schema_details
 from dbmanager.model.sharing import describe_permissions
-from dbmanager.sql.identifiers import quote_identifier
+from dbmanager.sql import generator as sqlgen
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.message_box import confirm, show_styled_message
+from dbmanager.ui.common.style import MENU_STYLE
 from dbmanager.ui.dialogs.database_dialog import InputDatabaseWindow
 from dbmanager.ui.dialogs.table_name_dialog import InputTableNameWindow
 from dbmanager.ui.table_editor.table_details_page import TableDetailsPage
@@ -21,20 +24,13 @@ NAME = Qt.ItemDataRole.UserRole + 1
 CONNECTION_ID = Qt.ItemDataRole.UserRole + 2
 
 
-# What the ⋮ menu of a database you own offers: (key, text)
+# What the ⋮ menu of a database you own offers: (key, text). There is no Test: opening a database (and ⟳)
+# reads it, which offers to fix its settings when it cannot be reached, and Edit tests what it saves.
 DATABASE_ACTIONS = [
     ("edit", "Edit connection…"),
-    ("test", "Test connection"),
     ("share", "Share…"),
     ("delete", "Delete…"),
 ]
-
-MENU_STYLE = """
-    QMenu { background-color: #FFFFFF; color: #2D3748; border: 1px solid #CBD5E0; padding: 4px; font-size: 13px; }
-    QMenu::item { padding: 6px 18px; border-radius: 4px; }
-    QMenu::item:selected { background-color: #3777f0; color: white; }
-    QMenu::separator { height: 1px; background: #E2E8F0; margin: 4px 6px; }
-"""
 
 
 def _table_item_text(name, view=False, dropping=False):
@@ -53,26 +49,28 @@ def _rename_in_link(link, table_name, old_name, new_name):
 
 
 class SideBar(QWidget):
-    """Databases of the signed-in user (from the server) and their tables.
+    """Databases of the signed-in user (the list comes from the server) and their tables (read from each
+    database itself, by db - a DatabaseClient).
 
     The diagram shows the tables of one database at a time - the active one. Each database keeps
     its own table pages and PK-FK links, so switching back and forth loses nothing.
 
     Edits made in the table pages are collected here into one SQL script per database and shown
-    in the SQL panel; Run Query sends it, and the database is then read back.
+    in the SQL panel; Run Query runs it on the database, which is then read back.
 
-    A database you own has Share and a ⋮ menu (also on right-click): edit or test its connection,
-    share it, delete it. Share asks the dashboard to share it (share_requested carries the connection).
+    A database you own has Share and a ⋮ menu (also on right-click): edit its connection, share it,
+    delete it. Share asks the dashboard to share it (share_requested carries the connection).
     """
     logout_requested = pyqtSignal()
     share_requested = pyqtSignal(object)
     databases_reloaded = pyqtSignal()
 
-    def __init__(self, stack_widget, diagram_page, api=None, sql_builder=None):
+    def __init__(self, stack_widget, diagram_page, api=None, sql_builder=None, db=None):
         super().__init__()
         self.stacked_center = stack_widget
         self.diagram = diagram_page
         self.api = api
+        self.db = db
         self.sql_builder = sql_builder
         self.page_map = {}   # (connection_id, table_name) -> TableDetailsPage
         # connection_id -> {"item", "connection", "schema_loaded", "links", "db_links"}
@@ -81,13 +79,15 @@ class SideBar(QWidget):
         self.active_db = None
         # connection_id -> (owner's username, [permission names]) for the databases shared with the user
         self.shares = {}
+        # databases you own whose guest logins were brought in line with the invitations this session
+        self.guests_checked = set()
 
         sidebar_layout = QVBoxLayout()
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
         self.setLayout(sidebar_layout)
         self.setFixedWidth(260)
-        self.setStyleSheet("background-color: #FFFFFF;")
+        self.setStyleSheet("QWidget { background-color: #FFFFFF; }")
 
         # Header
         databases_text = QFrame()
@@ -101,12 +101,12 @@ class SideBar(QWidget):
         dt_layout = QHBoxLayout(databases_text)
         dt_layout.setContentsMargins(16, 0, 16, 0)
         lbl_db = QLabel("Databases")
-        lbl_db.setStyleSheet("color: #744210; font-size: 16px; font-weight: 600; background: transparent;")
+        lbl_db.setStyleSheet("QLabel { color: #744210; font-size: 16px; font-weight: 600; background: transparent; }")
         dt_layout.addWidget(lbl_db)
         dt_layout.addStretch()
 
         refresh_btn = QPushButton("⟳")
-        refresh_btn.setToolTip("Reload databases and tables from the server")
+        refresh_btn.setToolTip("Reload the databases from the server, and their tables from the databases")
         refresh_btn.setFixedSize(28, 28)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.setStyleSheet("""
@@ -149,6 +149,8 @@ class SideBar(QWidget):
         """)
         self.db_tree.itemClicked.connect(self.on_tree_click)
         self.db_tree.itemDoubleClicked.connect(self.on_tree_double_click)
+        self.db_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.db_tree.customContextMenuRequested.connect(self._on_tree_menu)
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.db_tree.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -201,7 +203,15 @@ class SideBar(QWidget):
         if self.sql_builder:
             self.sql_builder.script_executed.connect(self._on_script_executed)
             self.sql_builder.discard_requested.connect(self.discard_changes)
+            # Checked before anything runs: MySQL commits each ALTER at once, so a run must not stop halfway
+            self.sql_builder.check_before_run = lambda: self.problems(self.active_db)
         self.diagram.table_area.connections_changed.connect(lambda: self._refresh_change_script(self.active_db))
+        # A link the database already has as a foreign key cannot be taken back from the diagram
+        self.diagram.is_saved_link = (
+            lambda link: link in self.databases.get(self.active_db, {}).get("db_links", ()))
+        self.diagram.open_table_requested.connect(self._open_from_diagram)
+        self.diagram.drop_table_requested.connect(lambda name: self._drop_from_page(self.active_db, name))
+        self.diagram.delete_field_requested.connect(self._delete_field_from_diagram)
 
         self.reload_databases()
 
@@ -257,7 +267,9 @@ class SideBar(QWidget):
         db_item.setData(0, ROLE, "database")
         db_item.setData(0, NAME, name)
         db_item.setData(0, CONNECTION_ID, connection["id"])
-        db_item.setFont(0, QFont("Segoe UI", 10, QFont.Weight.Bold))
+        bold = QFont(self.db_tree.font())
+        bold.setBold(True)
+        db_item.setFont(0, bold)
         db_item.setForeground(0, Qt.GlobalColor.white)
         db_item.setBackground(0, Qt.GlobalColor.transparent)
         self.db_tree.addTopLevelItem(db_item)
@@ -265,7 +277,9 @@ class SideBar(QWidget):
 
         add_item = QTreeWidgetItem(["     + Add Table"])
         add_item.setData(0, ROLE, "add_table")
-        db_item.addChild(add_item)
+        db_item.addChild(add_item)  # stays the last child: tables are inserted before it
+        # Only the owner changes the structure of a database; a guest's login could not run a CREATE TABLE
+        add_item.setHidden(not self._is_owner(connection))
 
         self.databases[connection["id"]] = {
             "item": db_item,
@@ -273,6 +287,7 @@ class SideBar(QWidget):
             "schema_loaded": False,
             "links": [],
             "db_links": set(),
+            "schema_info": {},  # table -> {"constraints", "details": {column: ...}}, as read (see db.schema)
         }
         return db_item
 
@@ -309,16 +324,16 @@ class SideBar(QWidget):
         layout.setSpacing(8)
 
         icon = QLabel("☰")
-        icon.setStyleSheet("color: white; font-size: 12px; background: transparent;")
+        icon.setStyleSheet("QLabel { color: white; font-size: 12px; background: transparent; }")
         label = QLabel(connection["dbName"])
-        label.setStyleSheet("color: white; font-size: 13px; font-weight: 600; background: transparent;")
+        label.setStyleSheet("QLabel { color: white; font-size: 13px; font-weight: 600; background: transparent; }")
         label.setObjectName("db_name_label")
         layout.addWidget(icon)
         layout.addWidget(label)
         layout.addStretch()
         if shared:
             badge = QLabel("shared")
-            badge.setStyleSheet("color: white; font-size: 10px; background: transparent;")
+            badge.setStyleSheet("QLabel { color: white; font-size: 10px; background: transparent; }")
             layout.addWidget(badge)
         else:
             share = QPushButton("Share")
@@ -341,7 +356,7 @@ class SideBar(QWidget):
 
             more = QToolButton()
             more.setText("⋮")
-            more.setToolTip("Edit, test, share or delete this database")
+            more.setToolTip("Edit, share or delete this database")
             more.setCursor(Qt.CursorShape.PointingHandCursor)
             more.setStyleSheet("""
                 QToolButton {
@@ -385,15 +400,13 @@ class SideBar(QWidget):
     def run_database_action(self, connection_id, key):
         if key == "edit":
             self.edit_database(connection_id)
-        elif key == "test":
-            self.test_database(connection_id)
         elif key == "share":
             self.share_requested.emit(self.databases[connection_id]["connection"])
         elif key == "delete":
             self.delete_database(connection_id)
 
     def add_database(self):
-        """Register a new database on the server and add it to the tree"""
+        """Register a new database on the server (its password stays here) and add it to the tree"""
         if not self.api:
             return
         created = {}
@@ -401,8 +414,8 @@ class SideBar(QWidget):
             self,
             title="New Database",
             button_text="Connect",
-            on_submit=lambda details: created.update(self.api.create_connection(details)),
-            on_test=self.api.test_new_connection
+            on_submit=lambda details: created.update(self.db.create_connection(details)),
+            on_test=self.db.test_new
         )
         if dialog.exec() != QDialog.DialogCode.Accepted or not created:
             return
@@ -424,6 +437,7 @@ class SideBar(QWidget):
             self.databases[self.active_db]["links"] = self.diagram.export_links()
         if connection_id != self.active_db:
             self.active_db = connection_id
+            self.diagram.can_change_structure = self._is_owner(entry["connection"])
             if self.sql_builder:
                 self.sql_builder.clear_query()
                 self.sql_builder.set_connection(entry["connection"])
@@ -438,20 +452,26 @@ class SideBar(QWidget):
         entry = self.databases.get(self.active_db)
         if entry is None:
             return
+        known = {}
         for (connection_id, table_name), page in self.page_map.items():
             if connection_id == self.active_db and page.state.columns and not page.state.pending_drop:
                 self.diagram.add_table_card(table_name, page.state.columns)
+                known[table_name] = {column[0] for column in page.state.columns}
         self.diagram.restore_links(entry["links"])
+        if self.sql_builder and entry["schema_loaded"]:
+            self.sql_builder.keep_only(known)  # a Run may have dropped a table or a column the query used
 
     def _load_schema(self, connection_id):
-        """Read the tables of a database from the server and create a page per table"""
+        """Read the tables of a database from the database itself and create a page per table"""
         entry = self.databases[connection_id]
         try:
             with busy_cursor():
-                tables = self.api.get_schema(connection_id)
-        except ApiError as error:
+                tables = self.db.schema(entry["connection"])
+        except (DatabaseError, ApiError) as error:
+            if getattr(error, "cancelled", False):
+                return  # asked for the password, and none was given
             text = f"Could not read the tables of '{entry['connection']['dbName']}':\n{error}"
-            if error.status == 502 and self._is_owner(entry["connection"]):
+            if getattr(error, "unreachable", False) and self._is_owner(entry["connection"]):
                 # Nothing answered: most often a wrong host, port, name or password - offer to fix them
                 if confirm(self, "Database Not Reachable", f"{text}\n\nEdit its connection settings now?"):
                     self.edit_database(connection_id)
@@ -467,22 +487,13 @@ class SideBar(QWidget):
                 continue
             view = "VIEW" in (table.get("type") or "").upper()
             columns = []
+            entry["schema_info"][table_name] = {
+                "constraints": table.get("constraints") or [],
+                "details": {column["name"]: schema_details(column) for column in table.get("columns") or []},
+            }
             for column in table.get("columns") or []:
                 referenced_table = column.get("referencedTable")
-                if column.get("primaryKey"):
-                    flag = "PK"
-                elif referenced_table:
-                    flag = "FK"
-                else:
-                    flag = "-"
-                columns.append([
-                    column["name"],
-                    column.get("type") or "",
-                    "Null" if column.get("nullable") else "Not Null",
-                    flag,
-                    referenced_table or "-",
-                    column.get("referencedColumn") or "-",
-                ])
+                columns.append(schema_column(column))
                 if referenced_table:
                     link = (referenced_table, column.get("referencedColumn"), table_name, column["name"])
                     entry["db_links"].add(link)
@@ -492,6 +503,23 @@ class SideBar(QWidget):
             db_item.insertChild(db_item.childCount() - 1, self._create_table_item(table_name, view))
             self.create_table_page(connection_id, table_name, columns=columns, live=True, view=view)
         db_item.setExpanded(True)
+        if self._is_owner(entry["connection"]):
+            self._check_guest_logins(connection_id)
+
+    def _check_guest_logins(self, connection_id):
+        """Once a session, when a database you own opens: the people it is shared with get the logins their
+        invitations call for (made, re-granted, or dropped once revoked) - see dbmanager.db.guests."""
+        if connection_id in self.guests_checked:
+            return
+        self.guests_checked.add(connection_id)
+        connection = self.databases[connection_id]["connection"]
+        try:
+            with busy_cursor():
+                self.db.sync_guests(connection)
+        except (DatabaseError, ApiError) as error:
+            show_styled_message(self, "Sharing", f"The logins of the people you share '{connection['dbName']}' "
+                                                 f"with could not be brought up to date:\n{error}",
+                                QMessageBox.Icon.Warning)
 
     def _reload_database(self, connection_id):
         """Throw away what was read from (or edited for) this database and read it again"""
@@ -509,6 +537,7 @@ class SideBar(QWidget):
             self._remove_table_item(entry["item"], key[1])
         entry["links"] = []
         entry["db_links"] = set()
+        entry["schema_info"] = {}
         entry["schema_loaded"] = False
 
         if connection_id == self.active_db:
@@ -592,12 +621,26 @@ class SideBar(QWidget):
         if self.sql_builder and connection_id is not None and connection_id == self.active_db:
             self.sql_builder.set_change_script(self._pending_statements(connection_id))
 
+    def _table_states(self, connection_id):
+        return {name: page.state for (key, name), page in self.page_map.items() if key == connection_id}
+
+    def problems(self, connection_id):
+        """What the database would refuse in the unsaved changes of a database, in words"""
+        if connection_id not in self.databases:
+            return []
+        return [problem for state in self._table_states(connection_id).values() for problem in state.problems()]
+
     def _pending_statements(self, connection_id):
         """The SQL that saves every edit made for this database (see build_change_script)"""
         entry = self.databases[connection_id]
         tables = {name: page.state for (key, name), page in self.page_map.items() if key == connection_id}
         links = self.diagram.export_links() if connection_id == self.active_db else entry["links"]
         return build_change_script(tables, links, entry["db_links"], entry["connection"]["dbType"])
+
+    def unsaved_changes(self):
+        """How many statements wait for Run Query, over every database opened in this session"""
+        return sum(len(self._pending_statements(connection_id))
+                   for connection_id, entry in self.databases.items() if entry["schema_loaded"])
 
     def _remove_database(self, connection_id):
         """Drop a database and all its table pages from the UI"""
@@ -609,6 +652,9 @@ class SideBar(QWidget):
         index = self.db_tree.indexOfTopLevelItem(entry["item"])
         if index >= 0:
             self.db_tree.takeTopLevelItem(index)
+        if self.db:
+            self.db.forget(connection_id)  # its password, or the login a share of it gave
+        self.guests_checked.discard(connection_id)
         if self.active_db == connection_id:
             self.active_db = None
             self.diagram.clear_diagram()
@@ -645,9 +691,16 @@ class SideBar(QWidget):
                 return
 
     def create_table_page(self, connection_id, table_name, columns=None, live=False, view=False):
-        db_type = self.databases[connection_id]["connection"]["dbType"]
+        entry = self.databases[connection_id]
+        info = entry["schema_info"].get(table_name, {}) if live else {}
         page = TableDetailsPage(table_name, self.stacked_center, columns=columns, live=live,
-                                db_type=db_type, view=view)
+                                db_type=entry["connection"]["dbType"], view=view,
+                                structure_locked=not self._is_owner(entry["connection"]),
+                                constraints=info.get("constraints"), column_details=info.get("details"))
+        page.describe_references = lambda column, key=connection_id, name=table_name: [
+            f"{child}.{', '.join(constraint['columns'])}"
+            for child, constraint in references_to(self._table_states(key), name, column)]
+        page.drop_requested.connect(lambda name, key=connection_id: self._drop_from_page(key, name))
         page.changes_made.connect(lambda key=connection_id: self._refresh_change_script(key))
         page.table_data_ready.connect(
             lambda name, cols, key=connection_id: self._on_table_data_ready(key, name, cols))
@@ -690,11 +743,13 @@ class SideBar(QWidget):
     def _load_rows(self, connection_id, page):
         """Fill a live table page with the first rows of the real table"""
         connection = self.databases[connection_id]["connection"]
-        sql = f"SELECT * FROM {quote_identifier(page.table_name, connection['dbType'])}"
+        sql = sqlgen.preview(page.table_name, TABLE_PREVIEW_ROWS, connection["dbType"])
         try:
             with busy_cursor():
-                result = self.api.run_query(connection_id, sql, max_rows=TABLE_PREVIEW_ROWS) or {}
-        except ApiError as error:
+                result = self.db.run_query(connection, sql, max_rows=TABLE_PREVIEW_ROWS) or {}
+        except (DatabaseError, ApiError) as error:
+            if getattr(error, "cancelled", False):
+                return
             show_styled_message(self, "Table Data", f"Could not read the rows of '{page.table_name}':\n{error}",
                                 QMessageBox.Icon.Warning)
             return
@@ -769,8 +824,8 @@ class SideBar(QWidget):
             title="Edit Database",
             connection=entry["connection"],
             button_text="Save",
-            on_submit=lambda details: updated.update(self.api.update_connection(connection_id, details)),
-            on_test=lambda details: self.api.test_connection(connection_id, details)
+            on_submit=lambda details: updated.update(self.db.update_connection(connection_id, details)),
+            on_test=lambda details: self.db.test_saved(entry["connection"], details)
         )
         if dialog.exec() != QDialog.DialogCode.Accepted or not updated:
             return
@@ -783,11 +838,12 @@ class SideBar(QWidget):
         entry["schema_loaded"] = False
         entry["links"] = []
         entry["db_links"] = set()
+        entry["schema_info"] = {}
         if connection_id == self.active_db:
             self.activate_database(connection_id)
 
     def keyPressEvent(self, event):
-        if event.key() != Qt.Key.Key_Delete:
+        if event.key() not in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):  # a Mac's delete key is Backspace
             super().keyPressEvent(event)
             return
         item = self.db_tree.currentItem()
@@ -798,6 +854,43 @@ class SideBar(QWidget):
             self._delete_table(item)
         elif role == "database":
             self.delete_database(item.data(0, CONNECTION_ID))
+
+    def _open_from_diagram(self, table_name):
+        item = self._find_table_item(self.active_db, table_name)
+        if item is not None:
+            self.on_tree_click(item)
+
+    def _delete_field_from_diagram(self, table_name, field_name):
+        page = self.page_map.get((self.active_db, table_name))
+        if page is not None and field_name in page.state.column_names():
+            page.delete_field(page.state.column_names().index(field_name))
+
+    def _drop_from_page(self, connection_id, table_name):
+        item = self._find_table_item(connection_id, table_name)
+        if item is not None:
+            self._delete_table(item)
+
+    def _on_tree_menu(self, pos):
+        """Right-click on a table in the tree: open it, drop it (or keep it after all)"""
+        item = self.db_tree.itemAt(pos)
+        if item is None or item.data(0, ROLE) != "table":
+            return
+        connection_id = item.parent().data(0, CONNECTION_ID)
+        page = self.page_map.get((connection_id, item.data(0, NAME)))
+        menu = QMenu(self)
+        menu.setStyleSheet(MENU_STYLE)
+        menu.addAction("Open").triggered.connect(lambda: self.on_tree_click(item))
+        if self._is_owner(self.databases[connection_id]["connection"]):
+            kind = "view" if page is not None and page.state.view else "table"
+            if page is not None and page.state.pending_drop:
+                text = f"Keep {kind}"
+            elif page is not None and not page.state.live:
+                text = "Delete table…"
+            else:
+                text = f"Drop {kind}…"
+            menu.addSeparator()
+            menu.addAction(text).triggered.connect(lambda: self._delete_table(item))
+        menu.exec(self.db_tree.viewport().mapToGlobal(pos))
 
     def _delete_table(self, item):
         connection_id = item.parent().data(0, CONNECTION_ID)
@@ -824,36 +917,39 @@ class SideBar(QWidget):
         unsaved = len(self._pending_statements(connection_id))
         if not confirm(self, "Delete Database",
                        f"Remove '{connection['dbName']}' from your account?\n"
-                       "The database itself is not touched, only the saved connection.\n"
-                       "Anyone you shared it with loses access."
+                       "Only the saved connection goes, and the logins made in the database for the people "
+                       "you shared it with: they lose access. Nothing else in the database is touched."
                        + (f"\n{unsaved} unsaved change{'s' if unsaved != 1 else ''} will be lost." if unsaved else "")):
+            return
+        if not self._drop_guest_logins(connection):
             return
         try:
             with busy_cursor():
-                self.api.delete_connection(connection_id)
+                self.db.delete_connection(connection_id)
         except ApiError as error:
             show_styled_message(self, "Delete Database", str(error), QMessageBox.Icon.Warning)
             return
         self._remove_database(connection_id)
 
-    def test_database(self, connection_id):
-        """Ask the server whether it can reach a database you own with its saved settings"""
-        connection = self.databases[connection_id]["connection"]
+    def _drop_guest_logins(self, connection):
+        """Before a shared database goes: its guests' logins go from the database. False to stop."""
         try:
             with busy_cursor():
-                message = self.api.test_connection(connection_id)
-        except ApiError as error:
-            if error.status == 502 and confirm(self, "Test Connection",
-                                               f"'{connection['dbName']}' cannot be reached:\n{error}\n\n"
-                                               "Edit its connection settings now?"):
-                self.edit_database(connection_id)
-            elif error.status != 502:
-                show_styled_message(self, "Test Connection", str(error), QMessageBox.Icon.Warning)
-            return
-        show_styled_message(self, "Test Connection", f"'{connection['dbName']}' works.\n{message}")
+                if not self.api.list_guest_accounts(connection["id"]):
+                    return True  # never shared: nothing was made in the database
+                self.db.drop_guest_logins(connection)
+            return True
+        except (DatabaseError, ApiError) as error:
+            return confirm(self, "Delete Database",
+                           f"The logins made for the people you shared '{connection['dbName']}' with could not be "
+                           f"removed from the database:\n{error}\n\nRemove the connection anyway? Those logins then "
+                           "stay in the database until you drop them yourself (they are called dbm_u…).")
 
     def _toggle_drop(self, connection_id, item, page):
         """Mark a table that exists in the database to be dropped on the next Run (or unmark it)"""
+        if not self._is_owner(self.databases[connection_id]["connection"]):
+            show_styled_message(self, "Shared Database", "Only the owner of a shared database can drop its tables.")
+            return
         state = page.state
         kind = "view" if state.view else "table"
         if state.pending_drop:
@@ -866,14 +962,22 @@ class SideBar(QWidget):
                 self.diagram.add_table_card(state.name, state.columns)
         else:
             details = "" if state.view else " and all its rows"
-            if not confirm(self, f"Drop {kind.title()}",
-                           f"Drop '{state.name}'{details} from the database?\n"
-                           "It is dropped when you click Run Query."):
+            text = f"Drop '{state.name}'{details} from the database?\nIt is dropped when you click Run Query."
+            pointing = [f"{child}.{', '.join(constraint['columns'])}"
+                        for child, constraint in references_to(self._table_states(connection_id), state.name)
+                        if not self._table_states(connection_id)[child].pending_drop]
+            if pointing:
+                text += ("\n\nThese fields point at it - their foreign keys are dropped first (the fields and "
+                         "their values stay):\n  " + "\n  ".join(pointing))
+            if not confirm(self, f"Drop {kind.title()}", text):
                 return
             state.pending_drop = True
             item.setText(0, _table_item_text(state.name, dropping=True))
             item.setForeground(0, Qt.GlobalColor.red)
             if connection_id == self.active_db:
                 self.diagram.remove_table_card(state.name)
+                if self.sql_builder:
+                    self.sql_builder.drop_table(state.name)  # the query cannot read it once it is dropped
             self.stacked_center.setCurrentWidget(self.diagram)
+        page.show_pending_drop(state.pending_drop)
         self._refresh_change_script(connection_id)

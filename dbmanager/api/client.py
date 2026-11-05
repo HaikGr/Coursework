@@ -36,6 +36,7 @@ class ApiClient:
         self.user_id = None
         self.username = None
         self.roles = []
+        self._sign_in_passwords = {}  # connection id -> password of the user's own databases, from sign-in
 
     @property
     def signed_in(self):
@@ -43,6 +44,8 @@ class ApiClient:
 
     # ---------------- Auth ----------------
     def login(self, username_or_email, password):
+        """Signs in; the answer also carries the passwords of the user's own databases (see
+        take_sign_in_passwords) - the only time the server hands them out."""
         data = self._request("POST", "/api/auth/login",
                              {"username": username_or_email, "password": password})
         self._store_session(data)
@@ -66,6 +69,20 @@ class ApiClient:
         finally:
             self._clear_session()
 
+    # ---------------- Forgotten password ----------------
+    def request_password_reset(self, email):
+        """Step 1 of 2: the server mails a code to the address if an account uses it - the address it signs in
+        with, or its premium one. It answers the same either way. Returns its message."""
+        data = self._request("POST", "/api/auth/password-reset/request", {"email": email})
+        return (data or {}).get("message", "")
+
+    def reset_password(self, email, code, new_password):
+        """Step 2 of 2: the code that came back sets the new password, and every session of the account ends.
+        Returns the account's username to sign in with: a premium address is no sign-in name."""
+        data = self._request("POST", "/api/auth/password-reset/confirm",
+                             {"email": email, "code": code, "newPassword": new_password})
+        return (data or {}).get("username")
+
     # ---------------- Account ----------------
     def account(self):
         """The signed-in account: {"id", "username", "email" (None when registered without one), ...}"""
@@ -77,6 +94,8 @@ class ApiClient:
         self._clear_session()
 
     # ---------------- Databases ----------------
+    # The app connects to them itself (dbmanager.db). A password sent here is stored encrypted and comes
+    # back only with the next sign-in: these answers never carry one.
     def list_connections(self):
         return self._request("GET", "/api/db-connections") or []
 
@@ -89,29 +108,29 @@ class ApiClient:
     def delete_connection(self, connection_id):
         self._request("DELETE", f"/api/db-connections/{connection_id}")
 
-    def test_new_connection(self, details):
-        """Can the server reach a database that is not saved yet? Returns what answered; a database
-        it cannot reach raises ApiError with status 502."""
-        return (self._request("POST", "/api/db-connections/test", details) or {}).get("message", "")
+    # ---------------- Guest logins ----------------
+    def list_guest_accounts(self, connection_id):
+        """The database logins made for the guests of a database you own: [{"userId", "dbUsername", ...}]"""
+        return self._request("GET", f"/api/db-connections/{connection_id}/guest-accounts") or []
 
-    def test_connection(self, connection_id, details=None):
-        """The same for a saved database (owner only): as saved, or with the edited details - leave
-        dbPassword out of them to use the stored password."""
-        data = self._request("POST", f"/api/db-connections/{connection_id}/test", details)
-        return (data or {}).get("message", "")
+    def save_guest_account(self, connection_id, user_id, db_username, db_password):
+        """Leave the sign-in of a login made for a guest, for their app to collect once they accept."""
+        return self._request("PUT", f"/api/db-connections/{connection_id}/guest-accounts/{user_id}",
+                             {"dbUsername": db_username, "dbPassword": db_password})
 
-    def get_schema(self, connection_id):
-        return self._request("GET", f"/api/db-connections/{connection_id}/schema") or []
+    def delete_guest_account(self, connection_id, user_id):
+        self._request("DELETE", f"/api/db-connections/{connection_id}/guest-accounts/{user_id}")
 
-    def run_query(self, connection_id, sql, max_rows=None):
-        body = {"sql": sql}
-        if max_rows:
-            body["maxRows"] = max_rows
-        return self._request("POST", f"/api/db-connections/{connection_id}/query", body)
+    def guest_credentials(self, connection_id):
+        """Your sign-in to a database shared with you: {"dbUsername", "dbPassword"}. 403 until an invitation
+        is accepted; 404 while the owner's app has not made the login yet."""
+        return self._request("GET", f"/api/db-connections/{connection_id}/credentials")
 
-    def run_script(self, connection_id, sql):
-        """Run ';'-separated statements in one transaction; returns {"results": [...], "durationMs": n}"""
-        return self._request("POST", f"/api/db-connections/{connection_id}/script", {"sql": sql})
+    # ---------------- Audit log ----------------
+    def record_audit(self, connection_id, action, detail, success):
+        """Report something the app did to a database, such as a query: those never pass the server."""
+        return self._request("POST", "/api/audit-logs", {
+            "dbConnectionId": connection_id, "action": action, "detail": (detail or "")[:2000], "success": success})
 
     # ---------------- Premium ----------------
     def premium_status(self):
@@ -147,6 +166,10 @@ class ApiClient:
         """ACCEPTED or DECLINED by the recipient, REVOKED by the sender."""
         return self._request("PUT", f"/api/invitations/{invitation_id}", {"status": status})
 
+    def delete_invitation(self, invitation_id):
+        """Withdraw an invitation you sent, as if it never was (sender only)."""
+        self._request("DELETE", f"/api/invitations/{invitation_id}")
+
     # ---------------- Plumbing ----------------
     def _store_session(self, data):
         if not isinstance(data, dict) or not data.get("token"):
@@ -155,12 +178,21 @@ class ApiClient:
         self.user_id = data.get("userId")
         self.username = data.get("username")
         self.roles = data.get("roles") or []
+        self._sign_in_passwords = {connection["id"]: connection["dbPassword"]
+                                   for connection in data.get("connections") or [] if connection.get("dbPassword")}
+
+    def take_sign_in_passwords(self):
+        """{connection id: password} of the user's own databases, from the sign-in - once: whoever takes them
+        keeps them, so they are not left lying around here."""
+        passwords, self._sign_in_passwords = self._sign_in_passwords, {}
+        return passwords
 
     def _clear_session(self):
         self.token = None
         self.user_id = None
         self.username = None
         self.roles = []
+        self._sign_in_passwords = {}
 
     def _request(self, method, path, body=None, timeout=None):
         if not self.base_url.startswith(("http://", "https://")):

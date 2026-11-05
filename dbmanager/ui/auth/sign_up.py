@@ -4,6 +4,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton
 
 from dbmanager.api import DB_TYPES, DEFAULT_PORTS, ApiClient, ApiError, parse_port
+from dbmanager.db import DatabaseClient, DatabaseError
 from dbmanager.ui.auth.base import LINK_BUTTON_STYLE, AuthWindow, PasswordField, primary_button_style
 from dbmanager.ui.common.busy import busy_cursor
 
@@ -44,7 +45,7 @@ class SignUpWindow(AuthWindow):
 
         # Database connection (optional)
         database_text = QLabel("Connect a database (optional)")
-        database_text.setStyleSheet("font-size: 14px; color: #838b99;")
+        database_text.setStyleSheet("QLabel { font-size: 14px; color: #838b99; }")
         database_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.card_layout.addSpacing(4)
         self.card_layout.addWidget(database_text)
@@ -126,21 +127,21 @@ class SignUpWindow(AuthWindow):
             "dbType": self.db_type.currentData(),
         }
 
-    def _still_wanted(self, api, connection):
-        """Test the database before adding it: one the server cannot reach is only added if the user says so"""
+    def _still_wanted(self, db, connection):
+        """Test the database before adding it: one this computer cannot reach is only added if the user says so"""
         try:
             with busy_cursor():
-                api.test_new_connection(connection)
+                db.test_new(connection)
             return True
-        except ApiError as error:
-            if error.status != 502:
+        except DatabaseError as error:
+            if not error.unreachable:
                 QMessageBox.warning(self, "Database Not Added",
                                     f"Your account was created, but the database could not be added:\n{error}\n\n"
                                     "You can add it from the dashboard with \"+ Add Database\".")
                 return False
             answer = QMessageBox.question(
                 self, "Database Not Reachable",
-                f"Your account was created, but the server could not connect to the database:\n{error}\n\n"
+                f"Your account was created, but this computer could not connect to the database:\n{error}\n\n"
                 "Add it anyway? You can fix its settings later with ⋮ → Edit connection.\n"
                 "No skips it; add it later with \"+ Add Database\".")
             return answer == QMessageBox.StandardButton.Yes
@@ -165,10 +166,11 @@ class SignUpWindow(AuthWindow):
             QMessageBox.warning(self, "Sign Up Error", str(error))
             return
 
-        if connection and self._still_wanted(api, connection):
+        db = DatabaseClient(api)  # keeps the password for the dashboard this session opens
+        if connection and self._still_wanted(db, connection):
             try:
                 with busy_cursor():
-                    api.create_connection(connection)
+                    db.create_connection(connection)
             except ApiError as error:
                 QMessageBox.warning(self, "Database Not Added",
                                     f"Your account was created, but the database could not be added:\n{error}\n\n"

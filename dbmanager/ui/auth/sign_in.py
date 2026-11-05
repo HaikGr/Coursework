@@ -35,14 +35,14 @@ class SignInWindow(AuthWindow):
         remember_layout = QHBoxLayout()
         remember_layout.setSpacing(10)
         self.remember = QCheckBox("Remember me")
-        self.remember.setStyleSheet("color: #8691a0; font-size: 14px;")
+        self.remember.setStyleSheet("QCheckBox { color: #8691a0; font-size: 14px; }")
         self.settings = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
         remembered = self.settings.value("remembered_username", "")
         if remembered:
             self.username.setText(remembered)
             self.remember.setChecked(True)
         forgot = QPushButton("Forgot password?")
-        forgot.setStyleSheet("color: #3B82F6; background: transparent; border: none;")
+        forgot.setStyleSheet(LINK_BUTTON_STYLE)
         forgot.setCursor(Qt.CursorShape.PointingHandCursor)
         forgot.clicked.connect(self.open_forgot_password)
         remember_layout.addWidget(self.remember)
@@ -60,7 +60,7 @@ class SignInWindow(AuthWindow):
 
         signup_row = QHBoxLayout()
         lbl = QLabel("Don't have an account?")
-        lbl.setStyleSheet("color:#4B5563; font-size:14px;")
+        lbl.setStyleSheet("QLabel { color:#4B5563; font-size:14px; }")
         signup_row.addStretch()
         signup_row.addWidget(lbl)
         signup_btn = QPushButton("SIGN UP")
@@ -104,6 +104,12 @@ class SignInWindow(AuthWindow):
             self.settings.remove("remembered_username")
         self.password.clear()
         self.open_dashboard(api, self.saveGeometry())
+
+    def offer(self, username):
+        """The account whose password was just reset, to sign in to"""
+        self.username.setText(username)
+        self.password.clear()
+        self.password.field.setFocus()
 
     def forget(self, username):
         """A deleted account is not offered again"""

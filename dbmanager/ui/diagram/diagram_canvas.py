@@ -3,30 +3,47 @@ import math
 from PyQt6 import sip
 from PyQt6.QtCore import QPoint, QPointF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QApplication, QWidget
 
+from dbmanager.model.links import End, plan_link
 from dbmanager.ui.diagram.field_row import FieldRow, key_flag
+
+
+def link_end(row):
+    """A field row as one end of a link"""
+    data = row.field_data
+    return End(row.table_card.table_name, data[0], data[1] if len(data) > 1 and data[1] != "-" else "",
+               key_flag(data) == "PK")
 
 MIN_WIDTH, MIN_HEIGHT = 1400, 900
 EDGE_MARGIN = 60
 
 
 class DiagramCanvas(QWidget):
-    """Canvas that holds TableCard widgets and draws connections between FieldRows.
+    """Canvas that holds TableCard widgets and draws the links between their fields.
 
-    Workflow: Click source field -> drag -> release on target field
-    """
+    A link is made by dragging from one field onto a field of another table - or by clicking one, then the
+    other (Esc, or a click on the empty canvas, gives up). One of the two must be a primary key: the other
+    field points at it, and becomes a foreign key when the changes are run. link_message says how it went.
+    query_joins (set by the diagram page) are joins of the query only, drawn dashed."""
     connections_changed = pyqtSignal()  # Emitted when connections are modified
+    link_message = pyqtSignal(str, bool)  # text, True when the link was made
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.connections = []  # list of tuples: (pk_field_row, fk_field_row, relation_type)
         self.cards = []
-        self.selected_field = None
-        self.drag_preview = None  # (start_point, end_point)
-        self.is_dragging_connection = False
+        self.query_joins = []  # (row, row) of joins made for the query only
+        self.links_enabled = True  # False where the user may not change the structure (a shared database)
+        self.source = None  # the row a link is being made from
+        self.pressed = None  # (row, global position) of a press that may become a drag
+        self.dragging = False
+        self.press_handled = False  # the press finished a click-click link: its release does nothing
+        self.preview_end = None  # where the link being made ends now, in canvas coordinates
+        self.hover_target = None  # the row it would go to, lit while valid
         self.setMouseTracking(True)
-        self.setStyleSheet("background-color: #1A1F2E;")
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)  # for Esc
+        self.setStyleSheet("QWidget { background-color: #1A1F2E; }")
 
     def add_card(self, card):
         card.canvas = self
@@ -51,11 +68,13 @@ class DiagramCanvas(QWidget):
 
     def _connect_card_fields(self, card):
         for row in card.all_rows():
-            try:
-                row.clicked.disconnect(self.on_field_clicked)
-            except TypeError:
-                pass  # was not connected yet
-            row.clicked.connect(self.on_field_clicked)
+            for signal, slot in ((row.link_pressed, self._on_link_pressed), (row.link_moved, self._on_link_moved),
+                                 (row.link_released, self._on_link_released)):
+                try:
+                    signal.disconnect(slot)
+                except TypeError:
+                    pass  # was not connected yet
+                signal.connect(slot)
 
     def update_card_fields(self, card):
         self._connect_card_fields(card)
@@ -108,16 +127,29 @@ class DiagramCanvas(QWidget):
             # Restore painter state
             painter.restore()
 
-        # Draw drag-preview line
-        if self.drag_preview and self.is_dragging_connection:
-            pen = QPen(QColor('#FFD57F'), 2, Qt.PenStyle.DashLine)
-            painter.setPen(pen)
-            start, end = self.drag_preview
-            painter.drawLine(QPoint(int(start[0]), int(start[1])), QPoint(int(end[0]), int(end[1])))
+        # Joins of the query only: dashed, they change nothing in the database
+        for left, right in self.query_joins:
+            start, end = self.get_field_center(left, left=False), self.get_field_center(right, left=True)
+            if start != (0, 0) and end != (0, 0):
+                painter.save()
+                painter.setPen(QPen(QColor('#2dd4bf'), 2, Qt.PenStyle.DashLine))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                path = QPainterPath(QPointF(*start))
+                dx = max(abs(end[0] - start[0]) * 0.5, 60)
+                path.cubicTo(QPointF(start[0] + dx, start[1]), QPointF(end[0] - dx, end[1]), QPointF(*end))
+                painter.drawPath(path)
+                painter.restore()
 
-            painter.setBrush(QColor('#FFD57F'))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(QPointF(end[0], end[1]), 4, 4)
+        # The link being made
+        if self.source is not None and self.preview_end is not None:
+            start = self.get_field_center(self.source, left=False)
+            if start != (0, 0):
+                color = QColor('#4ade80' if self.hover_target is not None else '#FFD57F')
+                painter.setPen(QPen(color, 2, Qt.PenStyle.DashLine))
+                painter.drawLine(QPoint(*start), self.preview_end)
+                painter.setBrush(color)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(QPointF(self.preview_end), 4, 4)
 
     def draw_connection_arrow(self, painter, start, end, color, relation_type='one-to-many', control_offset=0):
         painter.setPen(QPen(color, 2))
@@ -215,107 +247,131 @@ class DiagramCanvas(QWidget):
                 return True
         return False
 
-    def on_field_clicked(self, field_row):
-        """Handle field click to start or complete connection"""
-        # If no field selected, start connection
-        if self.selected_field is None:
-            self.selected_field = field_row
-            field_row.set_connection_role(is_source=True)
-            start = self.get_field_center(field_row, left=False)
-            self.drag_preview = (start, start)
-            self.is_dragging_connection = True
-            self.update()
-            return
+    # ---------------- Making a link ----------------
+    def row_at(self, global_pos):
+        """The field row under a point of the screen, or None"""
+        widget = self.childAt(self.mapFromGlobal(global_pos.toPoint()))
+        while widget is not None and widget is not self:
+            if isinstance(widget, FieldRow):
+                return widget
+            widget = widget.parentWidget()
+        return None
 
-        # Clicking same field cancels
-        if self.selected_field == field_row:
-            self.cancel_connection()
-            return
-
-        # Try to complete connection
-        self.try_complete_connection(field_row)
-
-    def try_complete_connection(self, target_field):
-        """Attempt to create a connection to the target field"""
-        if not self.selected_field:
-            return
-
-        # Prevent connecting within same table
-        if self.selected_field.table_card == target_field.table_card:
-            self.cancel_connection()
-            return
-
-        # Check if connection already exists
-        if self.connection_exists(self.selected_field, target_field):
-            self.cancel_connection()
-            return
-
-        # Validate PK-FK connection
-        source_type = key_flag(self.selected_field.field_data)
-        target_type = key_flag(target_field.field_data)
-
-        if (source_type == 'PK' and target_type == 'FK') or (source_type == 'FK' and target_type == 'PK'):
-            if source_type == 'PK':
-                pk_field = self.selected_field
-                fk_field = target_field
+    def _on_link_pressed(self, row, global_pos):
+        self.press_handled = False
+        if self.source is not None and not self.dragging:
+            # The second click of click-then-click
+            self.press_handled = True
+            if row is self.source:
+                self.cancel_connection()
             else:
-                pk_field = target_field
-                fk_field = self.selected_field
+                self.complete_link(row)
+            return
+        self.pressed = (row, global_pos)
 
-            relation = 'one-to-many'
-            self.connections.append((pk_field, fk_field, relation))
+    def _on_link_moved(self, global_pos, buttons_held):
+        if buttons_held and self.pressed is not None and not self.dragging:
+            row, start = self.pressed
+            if (global_pos - start).manhattanLength() >= QApplication.startDragDistance():
+                if self._start_link(row):
+                    self.dragging = True
+        if self.source is not None:
+            self._follow(global_pos)
 
-            # Update connection counts
-            pk_field.add_connection()
-            fk_field.add_connection()
+    def _on_link_released(self, global_pos):
+        pressed, self.pressed = self.pressed, None
+        if self.press_handled:
+            self.press_handled = False
+            return
+        if self.dragging:
+            self.dragging = False
+            target = self.row_at(global_pos)
+            if target is None or target is self.source:
+                self.cancel_connection()
+            else:
+                self.complete_link(target)
+        elif pressed is not None and self._start_link(pressed[0]):
+            # A click: the link waits for a click on the other field
+            self.link_message.emit(f"Now click the field of another table that {link_end(self.source)} links to "
+                                   "- Esc gives up.", False)
+            self._follow(global_pos)
 
-            # Notify listeners that connections changed
-            self.connections_changed.emit()
-
-        # Reset selection
+    def _start_link(self, row):
+        if not self.links_enabled:
+            self.link_message.emit("Only the owner of this database can link its tables (a link adds a foreign "
+                                   "key). To join tables in a query, use Join… in the query panel.", False)
+            return False
         self.cancel_connection()
+        self.source = row
+        row.set_connection_role(is_source=True)
+        self.setFocus()
+        return True
 
-    def cancel_connection(self):
-        """Cancel the current connection operation"""
-        if self.selected_field:
-            self.selected_field.set_connection_role(is_source=False)
-        self.selected_field = None
-        self.drag_preview = None
-        self.is_dragging_connection = False
+    def _follow(self, global_pos):
+        """The link being made follows the mouse; a field it could go to lights up"""
+        self.preview_end = self.mapFromGlobal(global_pos.toPoint())
+        target = self.row_at(global_pos)
+        valid = target if target is not None and target is not self.source and \
+            isinstance(plan_link(link_end(self.source), link_end(target)), tuple) else None
+        if valid is not self.hover_target:
+            if self.hover_target is not None and not sip.isdeleted(self.hover_target):
+                self.hover_target.set_connection_role(is_target=False)
+            self.hover_target = valid
+            if valid is not None:
+                valid.set_connection_role(is_target=True)
         self.update()
 
+    def complete_link(self, target):
+        """Link the field the link was started from to this one, or say why not"""
+        source = self.source
+        self.cancel_connection()
+        if source is not None:
+            self.link(source, target)
+
+    def link(self, source, target):
+        """Link two field rows (the first is the parent when both are keys). True when linked; otherwise
+        link_message says why not."""
+        plan = plan_link(link_end(source), link_end(target))
+        if isinstance(plan, str):
+            self.link_message.emit(plan, False)
+            return False
+        parent, child = (source, target) if plan[0] == link_end(source) else (target, source)
+        if self.connection_exists(parent, child):
+            self.link_message.emit(f"{plan[1]} and {plan[0]} are linked already.", False)
+            return False
+        current = next((pk for pk, fk, _ in self.connections if fk is child), None)
+        if current is not None:
+            self.link_message.emit(f"{plan[1]} points at {link_end(current)} already. Remove that link first "
+                                   "(right-click the field).", False)
+            return False
+        self.connections.append((parent, child, 'one-to-many'))
+        parent.add_connection()
+        child.add_connection()
+        self.connections_changed.emit()
+        self.update()
+        self.link_message.emit(f"Linked: {plan[1]} → {plan[0]}. Queries join the two tables on it, and it is saved "
+                               "as a foreign key when you click Run Query.", True)
+        return True
+
+    def cancel_connection(self):
+        """Give up the link being made"""
+        if self.source is not None and not sip.isdeleted(self.source):
+            self.source.set_connection_role(is_source=False)
+        if self.hover_target is not None and not sip.isdeleted(self.hover_target):
+            self.hover_target.set_connection_role(is_target=False)
+        self.source = self.hover_target = self.preview_end = None
+        self.dragging = False
+        self.update()
+
+    def mousePressEvent(self, event):
+        if self.source is not None:
+            self.cancel_connection()  # a click on the empty canvas gives up
+        super().mousePressEvent(event)
+
     def mouseMoveEvent(self, event):
-        """Update drag preview while dragging"""
-        if self.selected_field and self.drag_preview and self.is_dragging_connection:
-            start = self.drag_preview[0]
-            pos = event.position()
-            end = (int(pos.x()), int(pos.y()))
-            self.drag_preview = (start, end)
-            self.update()
+        if self.source is not None:
+            self._follow(event.globalPosition())
         super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        """Try to complete connection on mouse release"""
-        if self.selected_field and self.is_dragging_connection:
-            # Find field under cursor
-            pos = event.position().toPoint()
-            widget = self.childAt(pos)
-
-            # The widget under the cursor may be a label inside a field row
-            field_row = None
-            while widget is not None and widget is not self:
-                if isinstance(widget, FieldRow):
-                    field_row = widget
-                    break
-                widget = widget.parentWidget()
-
-            # If valid field found, try to complete connection
-            if field_row and field_row != self.selected_field:
-                self.try_complete_connection(field_row)
-            else:
-                self.cancel_connection()
-
-        super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
         """Cancel connection on Escape key"""
