@@ -29,22 +29,32 @@ class FakeBackend(BaseHTTPRequestHandler):
         FakeBackend.requests.append((self.command, self.path, self.headers.get("Authorization"), body))
         if self.path == "/api/auth/login":
             if body["password"] == "right":
-                self._reply(200, {"token": "t0k3n", "userId": 7, "username": "ann", "roles": ["USER"]})
+                self._reply(200, {"token": "t0k3n", "userId": 7, "username": "ann", "roles": ["USER"],
+                                  "connections": [{"id": 3, "dbName": "shop", "dbPassword": "db-secret"}]})
             else:
                 self._reply(401, {"status": 401, "message": "Invalid username or password"})
         elif self.path == "/api/auth/register":
             self._reply(400, {"status": 400, "message": "Validation failed",
                               "fieldErrors": {"password": "size must be between 8 and 100"}})
-        elif self.path == "/api/db-connections/1/query":
-            self._reply(200, raw=b'{"columns":["price"],"rows":[[19.99]],"truncated":false}')
-        elif self.path == "/api/db-connections/2/query":
+        elif self.path == "/api/auth/password-reset/request":
+            self._reply(200, {"message": f"If an account uses {body['email']}, a code was sent there."})
+        elif self.path == "/api/auth/password-reset/confirm":
+            if body["code"] == "123456":
+                self._reply(200, {"username": "ann", "message": "Your password was changed"})
+            else:
+                self._reply(400, {"status": 400, "message": "That code is not correct — 4 attempt(s) left"})
+        elif self.path == "/api/premium-users/confirm":
+            self._reply(200, raw=b'{"connectedEmail":"a@b.c","score":19.99}')
+        elif self.path == "/api/db-connections/2/credentials":
             self._reply(200, raw=b"<html>proxy error</html>")
-        elif self.path == "/api/db-connections/3/query":
+        elif self.path == "/api/db-connections/3/credentials":
             self.connection.shutdown(socket.SHUT_RDWR)  # the server goes away mid-request
-        elif self.path == "/api/db-connections/test":
-            self._reply(502, {"status": 502, "message": "Could not connect to POSTGRESQL localhost:5439/db"})
-        elif self.path == "/api/db-connections/5/test":
-            self._reply(200, {"message": "Connected to PostgreSQL 16.4 in 9 ms"})
+        elif self.path == "/api/db-connections/5/credentials":
+            self._reply(200, {"dbConnectionId": 5, "dbUsername": "dbm_u7_c5", "dbPassword": "guest-pw"})
+        elif self.path.startswith("/api/db-connections/5/guest-accounts"):
+            self._reply(204 if self.command == "DELETE" else 200, None if self.command == "DELETE" else [])
+        elif self.path == "/api/audit-logs":
+            self._reply(201, {"id": 1, **body})
         elif self.path == "/api/db-connections":
             self._reply(401, {"status": 401, "message": "Full authentication is required"})
         elif self.path == "/api/auth/logout":
@@ -88,6 +98,11 @@ class ApiClientTest(unittest.TestCase):
         self.assertEqual(FakeBackend.requests[-1][2], "Bearer t0k3n")
         self.assertFalse(self.api.signed_in)
 
+    def test_the_sign_in_hands_over_the_database_passwords_once(self):
+        self.api.login("ann", "right")
+        self.assertEqual(self.api.take_sign_in_passwords(), {3: "db-secret"})
+        self.assertEqual(self.api.take_sign_in_passwords(), {})
+
     def test_a_failed_login_shows_the_server_message_not_session_expired(self):
         with self.assertRaises(ApiError) as caught:
             self.api.login("ann", "wrong")
@@ -104,6 +119,18 @@ class ApiClientTest(unittest.TestCase):
             self.api.register("ann", "a@b.c", "short")
         self.assertEqual(caught.exception.field_errors, {"password": "size must be between 8 and 100"})
         self.assertIn("• password: size must be between 8 and 100", str(caught.exception))
+
+    def test_a_forgotten_password_is_reset_without_a_session(self):
+        self.assertIn("a code was sent", self.api.request_password_reset("ann@example.com"))
+        self.assertEqual(self.api.reset_password("ann@example.com", "123456", "brand-new-pw"), "ann")
+        self.assertEqual([request[1:] for request in FakeBackend.requests], [
+            ("/api/auth/password-reset/request", None, {"email": "ann@example.com"}),
+            ("/api/auth/password-reset/confirm", None,
+             {"email": "ann@example.com", "code": "123456", "newPassword": "brand-new-pw"})])
+        with self.assertRaises(ApiError) as caught:
+            self.api.reset_password("ann@example.com", "000000", "brand-new-pw")
+        self.assertEqual((caught.exception.status, str(caught.exception)),
+                         (400, "That code is not correct — 4 attempt(s) left"))
 
     def test_registering_without_an_email_leaves_it_out(self):
         with self.assertRaises(ApiError):  # the fake turns every registration down
@@ -130,28 +157,33 @@ class ApiClientTest(unittest.TestCase):
             ("PUT", "/api/invitations/5", {"status": "ACCEPTED"}),
         ])
 
-    def test_a_saved_database_is_tested_as_saved_unless_details_are_given(self):
-        self.assertEqual(self.api.test_connection(5), "Connected to PostgreSQL 16.4 in 9 ms")
-        with self.assertRaises(ApiError) as caught:
-            self.api.test_new_connection({"host": "localhost", "port": 5439})
-        self.assertEqual(caught.exception.status, 502)
+    def test_guest_logins_and_audit_entries_go_where_the_server_expects_them(self):
+        self.assertEqual(self.api.guest_credentials(5)["dbUsername"], "dbm_u7_c5")
+        self.api.list_guest_accounts(5)
+        self.api.save_guest_account(5, 8, "dbm_u8_c5", "Gx7rT2pQ9vLm4sWz8kYb")
+        self.api.delete_guest_account(5, 8)
+        self.api.record_audit(5, "QUERY_SELECT", "1 row(s) returned: SELECT 1", True)
         self.assertEqual([request[:2] + request[3:] for request in FakeBackend.requests], [
-            ("POST", "/api/db-connections/5/test", None),
-            ("POST", "/api/db-connections/test", {"host": "localhost", "port": 5439}),
+            ("GET", "/api/db-connections/5/credentials", None),
+            ("GET", "/api/db-connections/5/guest-accounts", None),
+            ("PUT", "/api/db-connections/5/guest-accounts/8", {"dbUsername": "dbm_u8_c5",
+                                                               "dbPassword": "Gx7rT2pQ9vLm4sWz8kYb"}),
+            ("DELETE", "/api/db-connections/5/guest-accounts/8", None),
+            ("POST", "/api/audit-logs", {"dbConnectionId": 5, "action": "QUERY_SELECT",
+                                         "detail": "1 row(s) returned: SELECT 1", "success": True}),
         ])
 
     def test_numbers_with_a_fraction_stay_exact(self):
-        result = self.api.run_query(1, "SELECT price FROM items")
-        self.assertEqual(result["rows"], [[Decimal("19.99")]])
+        self.assertEqual(self.api.confirm_premium("a@b.c", "123456")["score"], Decimal("19.99"))
 
     def test_an_answer_that_is_not_json_is_an_api_error(self):
         with self.assertRaises(ApiError) as caught:
-            self.api.run_query(2, "SELECT 1")
+            self.api.guest_credentials(2)
         self.assertEqual(caught.exception.status, 0)
 
     def test_a_dropped_connection_is_an_api_error(self):
         with self.assertRaises(ApiError) as caught:
-            self.api.run_query(3, "SELECT 1")
+            self.api.guest_credentials(3)
         self.assertEqual(caught.exception.status, 0)
 
     def test_an_unreachable_server_is_an_api_error(self):

@@ -1,8 +1,10 @@
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
 
-from dbmanager.sql.generator import is_integer_type
+from dbmanager.sql.generator import is_integer_type, is_numeric_type, looks_like_number
 from dbmanager.ui.common.icons import app_icon
+from dbmanager.ui.common.dark_dialog import settle_enter_key
+from dbmanager.ui.common.style import COMBO_ARROW
 
 NAME_INPUT_STYLE = """
     QLineEdit {{
@@ -21,16 +23,20 @@ NAME_INPUT_STYLE = """
 
 class InputFieldsWindow(QDialog):
     """Asks for one new column. get_data() returns
-    [name, type, "Null"/"Not Null", "PK"/"FK"/"-", "-", "-", "AUTO"/"-"] once accepted."""
+    [name, type, "Null"/"Not Null", "PK"/"FK"/"-", "-", "-", "AUTO"/"-", default value or None] once accepted.
 
-    def __init__(self, types_list=None, existing_names=(), parent=None):
+    existing_rows: how many rows the table already has in the database (0 for a new table; None when it is
+    not known) - they are what a NOT NULL field needs a value for."""
+
+    def __init__(self, types_list=None, existing_names=(), parent=None, existing_rows=0):
         super().__init__(parent)
         self.setWindowTitle("Add Field")
         self.setWindowIcon(app_icon())
-        self.setFixedSize(360, 600)
+        self.setFixedSize(380, 660)
         self.setModal(True)
         self.return_data = None
         self.existing_names = {name.lower() for name in existing_names}
+        self.existing_rows = existing_rows
 
         if types_list is None:
             types_list = [
@@ -43,7 +49,7 @@ class InputFieldsWindow(QDialog):
                 "uniqueidentifier"
             ]
 
-        self.setStyleSheet("""
+        self.setStyleSheet(COMBO_ARROW + """
             QDialog {
                 background-color: #1e293b;
             }
@@ -74,17 +80,6 @@ class InputFieldsWindow(QDialog):
             }
             QComboBox:focus {
                 border: 2px solid #3b82f6;
-            }
-            QComboBox::drop-down {
-                border: none;
-                width: 30px;
-            }
-            QComboBox::down-arrow {
-                image: none;
-                border-left: 6px solid transparent;
-                border-right: 6px solid transparent;
-                border-top: 8px solid #94a3b8;
-                margin-right: 10px;
             }
             QComboBox QAbstractItemView {
                 background-color: #334155;
@@ -124,7 +119,7 @@ class InputFieldsWindow(QDialog):
 
         # Header
         header = QLabel("Add New Field")
-        header.setStyleSheet("font-size: 22px; font-weight: 700; color: #f8fafc;")
+        header.setStyleSheet("QLabel { font-size: 22px; font-weight: 700; color: #f8fafc; }")
         layout.addWidget(header)
 
         # Field Name
@@ -135,7 +130,7 @@ class InputFieldsWindow(QDialog):
         self.input_field.textChanged.connect(lambda: self._show_name_error(None))
         layout.addWidget(self.input_field)
         self.name_error = QLabel()
-        self.name_error.setStyleSheet("color: #f87171; font-size: 12px;")
+        self.name_error.setStyleSheet("QLabel { color: #f87171; font-size: 12px; }")
         self.name_error.hide()
         layout.addWidget(self.name_error)
 
@@ -153,6 +148,15 @@ class InputFieldsWindow(QDialog):
         type_row.addLayout(type_col)
         
         layout.addLayout(type_row)
+
+        # Default value
+        layout.addWidget(QLabel("Default value"))
+        self.default_input = QLineEdit()
+        self.default_input.setPlaceholderText("none - optional")
+        self.default_input.setToolTip("What a row gets when no value is given for this field - the rows already\n"
+                                      "in the table too. Typed as it is, without quotes.")
+        self.default_input.textChanged.connect(self._update_rows_note)
+        layout.addWidget(self.default_input)
 
         # Checkboxes in a row
         check_row = QHBoxLayout()
@@ -183,6 +187,15 @@ class InputFieldsWindow(QDialog):
         
         key_row.addStretch()
         layout.addLayout(key_row)
+
+        # What the rows already in the table get - the reason a NOT NULL field may be refused
+        self.rows_note = QLabel()
+        self.rows_note.setWordWrap(True)
+        self.rows_note.setStyleSheet("QLabel { color: #fbbf24; font-size: 12px; font-weight: 400; "
+                                     "background: transparent; }")
+        layout.addWidget(self.rows_note)
+        self.null_checkbox.stateChanged.connect(self._update_rows_note)
+        self.type_combo.currentTextChanged.connect(self._update_rows_note)
 
         layout.addStretch()
 
@@ -231,8 +244,28 @@ class InputFieldsWindow(QDialog):
         btn_row.addStretch()
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(add_btn)
+        settle_enter_key(self, default=add_btn)  # Enter adds the field (Cancel used to answer it)
         layout.addLayout(btn_row)
+        self._update_rows_note()
 
+    def _update_rows_note(self):
+        """Say what the rows already there will hold - and what a NOT NULL field needs for them"""
+        rows = self.existing_rows
+        default = self.default_input.text().strip()
+        required = not self.null_checkbox.isChecked() and not self.auto_checkbox.isChecked()
+        if rows == 0:
+            note = ""
+        elif default:
+            note = "The rows already in the table get the default value."
+        elif required:
+            count = "The rows already in the table" if rows is None else \
+                f"The {rows} row{'s' if rows != 1 else ''} already in the table"
+            note = (f"{count} need a value for a required field: give a default value, or type one in each "
+                    "row before you run.")
+        else:
+            note = "The rows already in the table get no value (NULL)."
+        self.rows_note.setText(note)
+        self.rows_note.setVisible(bool(note))
     def _on_auto_changed(self):
         if self.auto_checkbox.isChecked():
             self.null_checkbox.setChecked(False)
@@ -295,7 +328,15 @@ class InputFieldsWindow(QDialog):
             pk_flag = "-"
 
         auto_flag = "AUTO" if self.auto_checkbox.isChecked() else "-"
-        self.return_data = [field_name, type_value, isnull_value, pk_flag, "-", "-", auto_flag]
+        default = self.default_input.text().strip() or None
+        if default is not None and auto_flag == "AUTO":
+            default = None  # the database numbers it
+        if default is not None and is_numeric_type(type_value) and not looks_like_number(default):
+            self.default_input.setFocus()
+            self.rows_note.setText(f"The default must be a number for a {type_value} field.")
+            self.rows_note.setVisible(True)
+            return
+        self.return_data = [field_name, type_value, isnull_value, pk_flag, "-", "-", auto_flag, default]
         super().accept()
 
     def get_data(self):

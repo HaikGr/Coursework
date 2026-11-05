@@ -95,9 +95,21 @@ def button(text, kind=None, on_click=None):
     if kind:
         widget.setObjectName(kind)
     widget.setCursor(Qt.CursorShape.PointingHandCursor)
+    widget.setAutoDefault(False)  # see settle_enter_key
     if on_click:
         widget.clicked.connect(on_click)
     return widget
+
+
+def settle_enter_key(dialog, default=None):
+    """Make Enter do one thing. In a QDialog it presses the default button - which, unless one is named, is
+    the first button made (often Cancel) - on top of whatever a line edit's own returnPressed does. Here only
+    `default` answers Enter, if given; line edits that act on Enter themselves keep doing so, alone."""
+    for widget in dialog.findChildren(QPushButton):
+        widget.setAutoDefault(False)
+        widget.setDefault(False)
+    if default is not None:
+        default.setDefault(True)
 
 
 def cell(*widgets):
@@ -116,4 +128,5 @@ def cell(*widgets):
 def show_status(widget, text, error=False):
     """An inline message under a form: red for a problem, green when something worked."""
     widget.setText(text)
-    widget.setStyleSheet(f"color: {ERROR_COLOR if error else SUCCESS_COLOR}; font-size: 12px; background: transparent;")
+    widget.setStyleSheet(f"QLabel {{ color: {ERROR_COLOR if error else SUCCESS_COLOR}; font-size: 12px; "
+                         "background: transparent; }")

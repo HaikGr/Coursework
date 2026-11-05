@@ -34,9 +34,9 @@ class DeleteAccountDialog(QDialog):
         saved = (f"your {databases} saved database connection{'s' if databases != 1 else ''}"
                  if databases else "your saved database connections")
         layout.addWidget(label(
-            f"This cannot be undone. Going with the account: {saved} and their passwords, every share you "
-            "gave (those users lose access) or received, and premium.\n"
-            "The databases themselves are not touched.", wrap=True))
+            f"This cannot be undone. Going with the account: {saved}, every share you gave (those users lose "
+            "access, and the logins made for them are removed from your databases) or received, and premium.\n"
+            "Nothing else in your databases is touched.", wrap=True))
         layout.addSpacing(8)
 
         layout.addWidget(label("Your password", "caption"))
