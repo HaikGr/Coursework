@@ -1,0 +1,98 @@
+{
+  "rows": {
+    "one": "{count} row",
+    "other": "{count} rows"
+  },
+  "first_rows": {
+    "one": "first {count} row",
+    "other": "first {count} rows"
+  },
+  "page": {
+    "view_read_only_tip": "Views are read-only here",
+    "owner_only_tip": "Only the owner changes the structure of a shared database",
+    "view_badge": "view · read-only",
+    "drop_table": "Drop table",
+    "drop_view": "Drop view",
+    "keep_table": "Keep table",
+    "keep_view": "Keep view",
+    "drop_table_tip": "Drop this table from the database (at the next {run_query})",
+    "drop_view_tip": "Drop this view from the database (at the next {run_query})",
+    "keep_table_tip": "Marked to be dropped when you click {run_query} - click to keep the table",
+    "keep_view_tip": "Marked to be dropped when you click {run_query} - click to keep the view"
+  },
+  "schema": {
+    "title": "Schema",
+    "column": "Column",
+    "type": "Type",
+    "null": "Null",
+    "add_field": "+ Add Field",
+    "row_tip": "{field} ({type})\nClick to show it in the rows",
+    "row_tip_editable": "{field} ({type})\nClick to show it in the rows · ⋮ or right-click: rename, require a value or allow NULL, delete",
+    "more_tip": "Rename, require a value or allow NULL, delete"
+  },
+  "field_menu": {
+    "rename": "Rename field…",
+    "default_value": "Default value…",
+    "require_value": "Require a value (NOT NULL)…",
+    "allow_null": "Allow empty values (NULL)",
+    "delete": "Delete field…"
+  },
+  "default_value": {
+    "title": "Default Value",
+    "prompt": "Default value for {field} ({type}) - empty for none:",
+    "invalid": "{field} {problem}."
+  },
+  "rename_field": {
+    "title": "Rename Field",
+    "prompt": "Enter new field name:",
+    "taken": "'{table}' already has a field named '{name}'."
+  },
+  "delete_field": {
+    "title": "Delete Field",
+    "not_here": "The fields of a view, or of a database shared with you, cannot be changed here.",
+    "never_saved": "Delete the field '{field}'? It was never saved.",
+    "saved": "Delete the field '{field}' and its values from every row? It is dropped when you click {run_query}.",
+    "references": "These fields point at it - their foreign keys are dropped too (the fields and their values stay):"
+  },
+  "data": {
+    "title": "Data Records",
+    "unsaved": "● unsaved - Run to save",
+    "unsaved_tip": "These changes are in the SQL panel. Click {run_query} to save them to the database.",
+    "discard_tip": "Throw away this table's changes that have not been run yet",
+    "value": "⊟  Value",
+    "value_tip": "Show the whole value of the selected cell under the rows ({keys})",
+    "add_row": "+ Add Row",
+    "no_fields_title": "No Fields",
+    "no_fields": "Please add at least one field before adding rows.",
+    "where_row": "row {row}",
+    "cut_note": "only these were read, so it is read-only",
+    "view_note": "views are read-only",
+    "not_taken": "{field} {problem} - the value was not taken.",
+    "not_taken_here": "{field} {problem} - not taken"
+  },
+  "delete_rows": {
+    "title": "Delete Row(s)",
+    "question": "Do you want to delete the selected row(s)?"
+  },
+  "value_panel": {
+    "close_tip": "Hide the value panel",
+    "wrap": "Wrap",
+    "wrap_tip": "Wrap long lines at the panel's width",
+    "copy_tip": "Copy the whole value",
+    "set_null": "Set NULL",
+    "set_null_tip": "Leave this cell without a value",
+    "copied": "Copied",
+    "no_cell": "No cell selected",
+    "select_cell": "Select a cell to see its whole value here",
+    "empty_text": "empty text",
+    "null_value": "NULL - no value",
+    "characters": {
+      "one": "{count:,} character",
+      "other": "{count:,} characters"
+    },
+    "lines": {
+      "one": "{count:,} line",
+      "other": "{count:,} lines"
+    }
+  }
+}

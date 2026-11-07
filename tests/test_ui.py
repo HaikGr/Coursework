@@ -7,7 +7,7 @@ from unittest import mock
 
 from tests import qt
 
-from PyQt6.QtCore import QPoint, Qt  # noqa: E402
+from PyQt6.QtCore import QPoint, QRect, Qt  # noqa: E402
 from PyQt6.QtGui import QColor, QPalette  # noqa: E402
 from PyQt6.QtTest import QTest  # noqa: E402
 from PyQt6.QtWidgets import (  # noqa: E402
@@ -26,6 +26,7 @@ from dbmanager.ui.auth.forgot_password import ForgotPasswordWindow  # noqa: E402
 from dbmanager.ui.auth.sign_in import SignInWindow  # noqa: E402
 from dbmanager.ui.auth.sign_up import SignUpWindow  # noqa: E402
 from dbmanager.ui.common.data_grid import MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, one_line  # noqa: E402
+from dbmanager.ui.common import theme  # noqa: E402
 from dbmanager.ui.common.message_box import styled_message_box, styled_question_box  # noqa: E402
 from dbmanager.ui.dashboard.dashboard_window import DashboardWindow  # noqa: E402
 from dbmanager.ui.dialogs.database_dialog import InputDatabaseWindow  # noqa: E402
@@ -285,11 +286,14 @@ def typed_text_contrast(editor, text="typed by user"):
 
 
 def label_contrast(widget):
-    """A label's or check box's text against what is behind it."""
+    """A label's or check box's text against what is behind it: its part of the window, drawn with and without
+    the text (a label with a transparent background grabbed on its own has nothing behind it)."""
+    window = widget.window()
+    area = QRect(widget.mapTo(window, QPoint(0, 0)), widget.size())
     text = widget.text()
-    shown = widget.grab().toImage()
+    shown = window.grab(area).toImage()
     widget.setText("")
-    blank = widget.grab().toImage()
+    blank = window.grab(area).toImage()
     widget.setText(text)
     return glyph_contrast(blank, shown)
 
@@ -1780,6 +1784,29 @@ class TextRoomTest(unittest.TestCase):
         field = window.password.field
         self.assertLessEqual(field.mapTo(window.password, text_rect(field).topRight()).x(), window.password.toggle.x())
         window.close()
+
+def use_theme(test, name):
+    """Build the test's widgets in a theme, with its palette, until the test ends."""
+    previous, palette = theme.current().name, APP.palette()
+    theme.set_theme(name)
+    APP.setPalette(theme.palette())
+    test.addCleanup(APP.setPalette, palette)
+    test.addCleanup(theme.set_theme, previous)
+
+
+class DarkDialogReadabilityTest(DialogReadabilityTest):
+    """The same dialogs, made in the dark theme"""
+
+    def setUp(self):
+        use_theme(self, "dark")
+        super().setUp()
+
+
+class DarkTooltipTest(TooltipTest):
+    """The same tooltips, in the dark theme"""
+
+    def setUp(self):
+        use_theme(self, "dark")
 
 
 if __name__ == "__main__":

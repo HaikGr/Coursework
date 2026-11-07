@@ -5,91 +5,102 @@ from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QMessageB
 
 from dbmanager.api import DB_TYPES, DEFAULT_PORTS, ApiClient, ApiError, parse_port
 from dbmanager.db import DatabaseClient, DatabaseError
+from dbmanager.i18n import tr
 from dbmanager.ui.auth.base import LINK_BUTTON_STYLE, AuthWindow, PasswordField, primary_button_style
 from dbmanager.ui.common.busy import busy_cursor
+from dbmanager.ui.common.live import bind
+from dbmanager.ui.common.theme import style
 
 INPUT_STYLE = """
     QLineEdit, QComboBox {
-        background: white;
+        background: @auth_input;
         border: 2px solid transparent;
         border-radius: 20px;
         padding: 8px 16px;
         font-size: 14px;
-        color: #4B5563;
+        color: @auth_input_text;
+        selection-background-color: @selection;
+        selection-color: @on_selection;
     }
-    QLineEdit:focus, QComboBox:focus { border: 2px solid #93B9E8; }
+    QLineEdit:focus, QComboBox:focus { border: 2px solid @focus; }
     QComboBox::drop-down { border: none; width: 24px; }
     QComboBox QAbstractItemView {
-        background: white;
-        color: #4B5563;
-        selection-background-color: #93B9E8;
+        background: @auth_input;
+        color: @auth_input_text;
+        selection-background-color: @accent_subtle;
+        selection-color: @text;
     }
 """
 
 
 class SignUpWindow(AuthWindow):
     def __init__(self, parent_window, geometry):
-        super().__init__("Database Management - Sign Up", card_height=600, card_margins=(25, 20, 25, 20),
+        super().__init__("auth.sign_up.window_title", card_height=600, card_margins=(25, 20, 25, 20),
                          card_spacing=8, parent_window=parent_window, geometry=geometry)
-        self.add_heading("Create Account", 30)
+        self.add_heading("auth.sign_up.heading", 30)
 
         # Account
-        self.username = self._line_edit("Username")
+        self.username = self._line_edit("auth.sign_up.username")
         self.card_layout.addWidget(self.username)
         # Only needed to sign in with it: becoming premium verifies an address of its own
-        self.email = self._line_edit("Email (optional)")
+        self.email = self._line_edit("auth.sign_up.email")
         self.card_layout.addWidget(self.email)
-        self.password = PasswordField("Password (min. 8 characters)", 330, 40, INPUT_STYLE,
+        self.password = PasswordField("auth.sign_up.password", 330, 40, INPUT_STYLE,
                                       toggle_size=28, icon_size=20)
         self.card_layout.addWidget(self.password)
 
         # Database connection (optional)
-        database_text = QLabel("Connect a database (optional)")
-        database_text.setStyleSheet("QLabel { font-size: 14px; color: #838b99; }")
+        database_text = QLabel()
+        bind(database_text.setText, "auth.sign_up.database")
+        style(database_text, "QLabel { font-size: 14px; color: @auth_text; }")
         database_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.card_layout.addSpacing(4)
         self.card_layout.addWidget(database_text)
 
-        self.host = self._line_edit("Host (e.g., localhost)")
-        self.port = self._line_edit("")
-        self.port.setFixedWidth(120)
+        self.host = self._line_edit("auth.sign_up.host")
+        self.port = self._line_edit(None)
+        self.port.setFixedWidth(130)  # room for 'Port 5432' in every language
         self.card_layout.addLayout(self._row(self.host, self.port))
 
-        self.database_name = self._line_edit("Database Name")
+        self.database_name = self._line_edit("auth.sign_up.database_name")
         self.db_type = QComboBox()
         for value, label, _ in DB_TYPES:
             self.db_type.addItem(label, value)
-        self.db_type.setStyleSheet(INPUT_STYLE)
+        style(self.db_type, INPUT_STYLE)
         self.db_type.setFixedWidth(150)
         self.db_type.currentIndexChanged.connect(self._update_port_placeholder)
         self.card_layout.addLayout(self._row(self.database_name, self.db_type))
         self._update_port_placeholder()
 
-        self.db_username = self._line_edit("DB Username")
-        self.db_password = PasswordField("DB Password", 160, 40, INPUT_STYLE, toggle_size=28, icon_size=20)
+        self.db_username = self._line_edit("auth.sign_up.db_username")
+        self.db_password = PasswordField("auth.sign_up.db_password", 186, 40, INPUT_STYLE, toggle_size=28, icon_size=20)
         self.db_password.field.returnPressed.connect(self.attempt_signup)
         self.card_layout.addLayout(self._row(self.db_username, self.db_password))
 
         self.card_layout.addSpacing(6)
 
-        signup_btn = QPushButton("Sign Up")
+        signup_btn = QPushButton()
+        bind(signup_btn.setText, "auth.sign_up.submit")
         signup_btn.setFixedSize(100, 100)
         signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        signup_btn.setStyleSheet(primary_button_style(radius=50, font_size=17))
+        style(signup_btn, primary_button_style(radius=50, font_size=17))
         signup_btn.clicked.connect(self.attempt_signup)
         self.card_layout.addWidget(signup_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        signin_btn = QPushButton("SIGN IN")
-        signin_btn.setStyleSheet(LINK_BUTTON_STYLE)
+        signin_btn = QPushButton()
+        bind(signin_btn.setText, "auth.sign_up.sign_in")
+        style(signin_btn, LINK_BUTTON_STYLE)
         signin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         signin_btn.clicked.connect(self.go_back)
         self.card_layout.addWidget(signin_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
     @staticmethod
     def _line_edit(placeholder):
+        """placeholder: a catalogue key, or None for one set later"""
         field = QLineEdit()
-        field.setPlaceholderText(placeholder)
-        field.setStyleSheet(INPUT_STYLE)
+        if placeholder:
+            bind(field.setPlaceholderText, placeholder)
+        style(field, INPUT_STYLE)
         return field
 
     @staticmethod
@@ -101,7 +112,7 @@ class SignUpWindow(AuthWindow):
         return row
 
     def _update_port_placeholder(self):
-        self.port.setPlaceholderText(f"Port {DEFAULT_PORTS[self.db_type.currentData()]}")
+        bind(self.port.setPlaceholderText, "auth.sign_up.port", port=DEFAULT_PORTS[self.db_type.currentData()])
 
     def _connection_details(self):
         """The optional database as API details: None when left empty, False when half filled in."""
@@ -110,13 +121,11 @@ class SignUpWindow(AuthWindow):
         if not any(db_fields) and not self.port.text().strip():
             return None
         if not all(db_fields):
-            QMessageBox.warning(self, "Sign Up Error",
-                                "To connect a database, fill in host, database name, DB username and "
-                                "DB password - or leave them all empty and add it later.")
+            QMessageBox.warning(self, tr("auth.sign_up.error_title"), tr("auth.sign_up.incomplete_database"))
             return False
         port = parse_port(self.port.text() or str(DEFAULT_PORTS[self.db_type.currentData()]))
         if port is None:
-            QMessageBox.warning(self, "Sign Up Error", "Port must be a number between 1 and 65535.")
+            QMessageBox.warning(self, tr("auth.sign_up.error_title"), tr("auth.sign_up.bad_port"))
             return False
         return {
             "host": db_fields[0],
@@ -135,23 +144,24 @@ class SignUpWindow(AuthWindow):
             return True
         except DatabaseError as error:
             if not error.unreachable:
-                QMessageBox.warning(self, "Database Not Added",
-                                    f"Your account was created, but the database could not be added:\n{error}\n\n"
-                                    "You can add it from the dashboard with \"+ Add Database\".")
+                self._not_added(error)
                 return False
             answer = QMessageBox.question(
-                self, "Database Not Reachable",
-                f"Your account was created, but this computer could not connect to the database:\n{error}\n\n"
-                "Add it anyway? You can fix its settings later with ⋮ → Edit connection.\n"
-                "No skips it; add it later with \"+ Add Database\".")
+                self, tr("auth.sign_up.unreachable_title"),
+                tr("auth.sign_up.unreachable", error=error, add_database=tr("common.action.add_database"),
+                   edit_connection=tr("common.action.edit_connection")))
             return answer == QMessageBox.StandardButton.Yes
+
+    def _not_added(self, error):
+        QMessageBox.warning(self, tr("auth.sign_up.not_added_title"),
+                            tr("auth.sign_up.not_added", error=error, add_database=tr("common.action.add_database")))
 
     def attempt_signup(self):
         username = self.username.text().strip()
         email = self.email.text().strip()
         password = self.password.text()
         if not username or not password:
-            QMessageBox.warning(self, "Sign Up Error", "Please enter a username and a password.")
+            QMessageBox.warning(self, tr("auth.sign_up.error_title"), tr("auth.sign_up.missing"))
             return
 
         connection = self._connection_details()
@@ -163,7 +173,7 @@ class SignUpWindow(AuthWindow):
             with busy_cursor():
                 api.register(username, email, password)
         except ApiError as error:
-            QMessageBox.warning(self, "Sign Up Error", str(error))
+            QMessageBox.warning(self, tr("auth.sign_up.error_title"), str(error))
             return
 
         db = DatabaseClient(api)  # keeps the password for the dashboard this session opens
@@ -172,9 +182,7 @@ class SignUpWindow(AuthWindow):
                 with busy_cursor():
                     db.create_connection(connection)
             except ApiError as error:
-                QMessageBox.warning(self, "Database Not Added",
-                                    f"Your account was created, but the database could not be added:\n{error}\n\n"
-                                    "You can add it from the dashboard with \"+ Add Database\".")
+                self._not_added(error)
 
         # The sign-in window owns the dashboard, so logging out lands there
         self.parent_window.open_dashboard(api, self.saveGeometry(), from_window=self)

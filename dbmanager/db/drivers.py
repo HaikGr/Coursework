@@ -8,6 +8,7 @@ import re
 import time
 
 from dbmanager.config import DB_CONNECT_TIMEOUT_SECONDS, DB_STATEMENT_TIMEOUT_SECONDS
+from dbmanager.i18n import tr
 
 # The types this app can open: (module, what to pip install)
 _DRIVERS = {
@@ -32,24 +33,25 @@ class DatabaseError(Exception):
     unreachable:   nothing could be opened at all (wrong address, name or sign-in, or the server is down)
     refused_login: of those, the server answered but did not accept the user name and password
     cancelled:     the user was asked for a password and gave none
+    record:        the text in English, for the audit log (the message itself when not given)
     """
 
-    def __init__(self, message, unreachable=False, refused_login=False, cancelled=False):
+    def __init__(self, message, unreachable=False, refused_login=False, cancelled=False, record=None):
         super().__init__(message)
         self.unreachable = unreachable
         self.refused_login = refused_login
         self.cancelled = cancelled
+        self.record = record if record is not None else message
 
 
 def driver_module(db_type):
     if db_type not in _DRIVERS:
-        raise DatabaseError(f"{db_type} databases can be registered but not opened by this app - "
-                            f"it supports {', '.join(SUPPORTED_TYPES)}.")
+        raise DatabaseError(tr("db.drivers.not_supported", db_type=db_type, types=", ".join(SUPPORTED_TYPES)))
     module, package = _DRIVERS[db_type]
     try:
         return importlib.import_module(module)
     except ImportError:
-        raise DatabaseError(f"The driver for {db_type} databases is not installed: pip install \"{package}\"") from None
+        raise DatabaseError(tr("db.drivers.not_installed", db_type=db_type, package=package)) from None
 
 
 def describe_target(connection):
@@ -73,11 +75,12 @@ def connect(connection, user, password):
             # FreeTDS often reports only that the server "sent messages": it answered, and refused the login
             refused = True
             if "login failed" not in message.lower():
-                message = "the server refused the login (wrong user name or password, or no access to this database)"
-        raise DatabaseError(f"Could not connect to {describe_target(connection)}: {message}", unreachable=True,
-                            refused_login=refused) from None
+                message = tr("db.drivers.login_refused")
+        raise DatabaseError(tr("db.drivers.connect_failed", target=describe_target(connection), reason=message),
+                            unreachable=True, refused_login=refused) from None
     except OSError as error:  # a name that does not resolve can surface as a plain socket error
-        raise DatabaseError(f"Could not connect to {describe_target(connection)}: {error}", unreachable=True) from None
+        raise DatabaseError(tr("db.drivers.connect_failed", target=describe_target(connection), reason=error),
+                            unreachable=True) from None
 
 
 def server_version(db_connection, db_type):
@@ -104,10 +107,10 @@ def test(connection, user, password):
     try:
         version = server_version(db_connection, connection["dbType"])
     except Exception as error:  # noqa: BLE001 - whatever the driver raises, the database did answer
-        version = f"{connection['dbType']} (could not read its version: {error_message(error)})"
+        version = tr("db.drivers.version_unknown", db_type=connection["dbType"], reason=error_message(error))
     finally:
         db_connection.close()
-    return f"Connected to {version} in {round((time.monotonic() - started) * 1000)} ms"
+    return tr("db.drivers.connected", server=version, ms=round((time.monotonic() - started) * 1000))
 
 
 def error_message(error):

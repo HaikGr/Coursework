@@ -1,10 +1,12 @@
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
+from dbmanager.i18n import trn
+from dbmanager.ui.common.live import bind
+from dbmanager.ui.common.theme import color, style
 from dbmanager.ui.diagram.field_row import FieldRow, key_flag
 
-HINT_STYLE = "QLabel { color:#A0AEC0; font-size:11px; padding:6px 12px; }"
+HINT_STYLE = "QLabel { color: @text_muted; font-size:11px; padding:6px 12px; }"  # a theme.qss template
 
 
 class TableCard(QFrame):
@@ -27,19 +29,19 @@ class TableCard(QFrame):
         self.setFixedSize(200, 300)
         self.setMinimumSize(220, 280)
         self.setMaximumWidth(250)
-        self.setStyleSheet("""
+        style(self, """
             TableCard {
-                background-color: #4A5568;
+                background-color: @surface;
                 border-radius: 12px;
                 border: none;
             }
         """)
 
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(15)
-        shadow.setColor(QColor(0, 0, 0, 120))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
+        self.shadow = QGraphicsDropShadowEffect()
+        self.shadow.setBlurRadius(15)
+        bind(self.shadow.setColor, lambda: color("shadow"))
+        self.shadow.setOffset(0, 3)
+        self.setGraphicsEffect(self.shadow)
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
@@ -61,17 +63,17 @@ class TableCard(QFrame):
     # ---------------- Building ----------------
     def _build(self):
         self._build_header()
-        self.pk_rows = self._build_rows_section(self.pk_fields, "No primary keys")
-        self.fk_rows = self._build_rows_section(self.fk_fields, "No foreign keys")
+        self.pk_rows = self._build_rows_section(self.pk_fields, "diagram.card.no_primary_keys")
+        self.fk_rows = self._build_rows_section(self.fk_fields, "diagram.card.no_foreign_keys")
         self.main_rows = self._build_main_section()
         self._build_footer()
         self._adjust_height()
 
     def _build_header(self):
         self.header_container = QFrame()
-        self.header_container.setStyleSheet("""
+        style(self.header_container, """
             QFrame {
-                background-color: #2D3748;
+                background-color: @surface_alt;
                 border-top-left-radius: 12px;
                 border-top-right-radius: 12px;
             }
@@ -81,12 +83,12 @@ class TableCard(QFrame):
         layout.setSpacing(6)
 
         drag_icon = QLabel("⋮⋮")
-        drag_icon.setStyleSheet("QLabel { color: #718096; font-weight:bold; font-size:14px; }")
+        style(drag_icon, "QLabel { color: @text_disabled; font-weight:bold; font-size:14px; }")
         table_label = QLabel(self.table_name)
-        table_label.setStyleSheet("QLabel { color: #FFFFFF; font-weight:600; font-size:13px; }")
+        style(table_label, "QLabel { color: @text; font-weight:600; font-size:13px; }")
         table_label.setToolTip(self.table_name)
         status = QLabel("●")
-        status.setStyleSheet("QLabel { color: #48BB78; font-size:16px; }")
+        style(status, "QLabel { color: @success_text; font-size:16px; }")
 
         layout.addWidget(drag_icon)
         layout.addWidget(table_label)
@@ -95,20 +97,22 @@ class TableCard(QFrame):
         self.main_layout.addWidget(self.header_container)
 
     def _add_rows(self, layout, fields, empty_hint):
+        """empty_hint: the catalogue key of what an empty section says"""
         rows = []
         for field in fields:
             row = FieldRow(self, field)
             layout.addWidget(row)
             rows.append(row)
         if not fields:
-            hint = QLabel(empty_hint)
-            hint.setStyleSheet(HINT_STYLE)
+            hint = QLabel()
+            bind(hint.setText, empty_hint)
+            style(hint, HINT_STYLE)
             layout.addWidget(hint)
         return rows
 
     def _build_rows_section(self, fields, empty_hint):
         container = QWidget()
-        container.setStyleSheet("QWidget { background-color: #5A6C7D; }")
+        style(container, "QWidget { background-color: @surface; }")
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -121,18 +125,18 @@ class TableCard(QFrame):
         scroll.setWidgetResizable(True)
         scroll.setMinimumHeight(60)
         scroll.setMaximumHeight(180)
-        scroll.setStyleSheet("""
-            QScrollArea {border:none; background-color:#5A6C7D;}
+        style(scroll, """
+            QScrollArea {border:none; background-color:@surface;}
             QScrollBar:vertical {width:6px; background:transparent; margin:0px;}
-            QScrollBar::handle:vertical {background:#718096; border-radius:3px; min-height:20px;}
-            QScrollBar::handle:vertical:hover {background:#8A95A5;}
+            QScrollBar::handle:vertical {background:@scrollbar; border-radius:3px; min-height:20px;}
+            QScrollBar::handle:vertical:hover {background:@scrollbar_hover;}
         """)
         content = QWidget()
-        content.setStyleSheet("QWidget { background:transparent; }")
+        style(content, "QWidget { background:transparent; }")
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        rows = self._add_rows(layout, self.main_fields, "No additional fields")
+        rows = self._add_rows(layout, self.main_fields, "diagram.card.no_other_fields")
         layout.addStretch()
         scroll.setWidget(content)
         self.main_layout.addWidget(scroll)
@@ -140,17 +144,19 @@ class TableCard(QFrame):
 
     def _build_footer(self):
         self.footer = QFrame()
-        self.footer.setStyleSheet("""
-            QFrame {background-color:#2D3748; border-bottom-left-radius:12px; border-bottom-right-radius:12px;}
+        style(self.footer, """
+            QFrame {background-color:@surface_alt; border-bottom-left-radius:12px; border-bottom-right-radius:12px;}
         """)
         layout = QHBoxLayout(self.footer)
         layout.setContentsMargins(12, 4, 12, 4)
 
         total_fields = len(self.fields)
-        count_label = QLabel(f"{total_fields} field{'s' if total_fields != 1 else ''}")
-        count_label.setStyleSheet("QLabel { color:#A0AEC0; font-size:11px; }")
-        action_label = QLabel("Drag here to move")
-        action_label.setStyleSheet("QLabel { color:#718096; font-size:11px; }")
+        count_label = QLabel()
+        bind(count_label.setText, lambda: trn("diagram.card.fields", total_fields))
+        style(count_label, "QLabel { color:@text_muted; font-size:11px; }")
+        action_label = QLabel()
+        bind(action_label.setText, "diagram.card.drag_to_move")
+        style(action_label, "QLabel { color:@text_muted; font-size:11px; }")
         action_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         layout.addWidget(count_label)

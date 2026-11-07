@@ -52,17 +52,26 @@ only when a database of their type is opened, so if one cannot be installed on y
 older Mac, psycopg's binary build on Windows on ARM), install the others alone - `pip install PyQt6
 "psycopg[binary]" "PyMySQL[rsa]"` - and the app says which driver is missing when it needs it.
 
-The app looks the same on every system: it draws its controls with Qt's Fusion style, in its own light
-colours whatever the system theme. Shortcuts follow the system: **Ctrl+Enter** runs the query (**⌘↩** on a
-Mac), and a Mac's delete key (Backspace) deletes like Delete.
+The app looks the same on every system: it draws its controls with Qt's Fusion style, in its own colours.
+Shortcuts follow the system: **Ctrl+Enter** runs the query (**⌘↩** on a Mac), and a Mac's delete key
+(Backspace) deletes like Delete.
+
+### Language and theme
+
+The app speaks **English, Russian and Armenian** (Հայերեն), and has a **light and a dark theme**. Both pickers
+are in the top right corner of the sign-in windows and in the dashboard's top bar; a change applies at once to
+every open window, without losing anything, and is remembered for the next start. Until you pick, the app
+follows your system: its language when the app has it (English otherwise), and its light or dark mode. Every
+request tells the backend the language too, so its messages - errors included - come in the same one.
 
 ## Project layout
 
 ```
 main.py                     entry point
 dbmanager/
-  app.py                    QApplication set-up, first window
+  app.py                    QApplication set-up (the language and theme before the first window), first window
   config.py                 server address, timeouts, paths, preview size
+  i18n/                     translations (no Qt): tr() / trn(), and locales/<language>/<area>.json
   api/                      the backend: ApiClient / ApiError, database types
   db/                       your databases, reached from this computer (no Qt):
     client.py                 DatabaseClient: who signs in how, runs queries, keeps guest logins in line
@@ -83,8 +92,10 @@ dbmanager/
                               SELECT per dialect (GROUP BY, HAVING, LIMIT/TOP and the JOINs written for you)
   ui/
     common/                 icons, message boxes, busy cursor, animated background, window transitions,
-                            the dark dialog style, shared styles, an elided label, a wrapping layout,
-                            how data grids size their columns, the value panel
+                            the dialog style, shared styles, an elided label, a wrapping layout,
+                            how data grids size their columns, the value panel;
+                            theme.py (the light and dark colour tokens), live.py (texts and styles that
+                            follow a switch), preferences.py (remembering and applying both, the pickers)
     auth/                   sign in, sign up, forgot password (share auth/base.py)
     dashboard/              main window, top bar, query toolbar, database sidebar
     diagram/                ER canvas, table cards, field rows and their query menu
@@ -98,6 +109,18 @@ tests/                      unit and offscreen widget tests, plus an end-to-end 
 ```
 
 `sql/`, `model/` and `db/` do not import Qt, so the logic that decides what SQL to run is tested without a UI.
+
+**Texts** come from `dbmanager/i18n/locales/<language>/<area>.json`, never from the code: `tr("auth.sign_in.heading")`,
+`trn(key, count)` for a text that depends on a number (Russian has three plural forms). English is the
+reference. `tests/test_i18n.py` fails when a language lacks a key or a placeholder of English, or when the code
+names a key that does not exist; the tests run with `DB_MANAGER_STRICT_I18N=1`, which makes a missing key an
+error instead of English. A text that stays on screen is set with `live.bind(label.setText, key)`, so that a
+language switch updates it in place; a modal dialog can use plain `tr()`.
+
+**Colours** are tokens of `ui/common/theme.py`, never hex values in a widget: a style sheet names them
+(`QLabel { color: @text_muted; }`) and `theme.style(widget, sheet)` keeps it in step with the theme; painting
+code asks `theme.color("link")`. Both themes keep text at a contrast of 4.5:1 or more, which
+`tests/test_preferences.py` checks for the token pairs and the readability tests for every dialog, in both themes.
 
 Style sheets always name what they style (`QLabel { ... }`, `QWidget { ... }`). One without a selector
 styles the tooltips of every widget inside it too, and a tooltip is a window of its own with nothing behind

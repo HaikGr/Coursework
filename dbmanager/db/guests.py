@@ -16,6 +16,7 @@ import re
 import secrets
 import string
 
+from dbmanager.i18n import tr
 from dbmanager.sql.identifiers import quote_identifier
 
 PRIVILEGES = {"SELECT_ROLE": "SELECT", "INSERT_ROLE": "INSERT", "UPDATE_ROLE": "UPDATE", "DELETE_ROLE": "DELETE"}
@@ -86,7 +87,7 @@ def dialect(db_type):
         return MySql()
     if db_type == "SQLSERVER":
         return SqlServer()
-    raise ValueError(f"Sharing is not supported for {db_type} databases")
+    raise ValueError(tr("db.guests.not_supported", db_type=db_type))
 
 
 def _literal(text):

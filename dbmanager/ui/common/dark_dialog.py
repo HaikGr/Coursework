@@ -1,83 +1,95 @@
-"""The look of the account and sharing dialogs: the dark theme of the database dialog.
+"""The look of the account and sharing dialogs, in the current theme.
 
-Every child sets its own background: a dialog inherits the style sheet of the window it opens over, and
-the dashboard's light page background would otherwise show up behind the light text."""
+DIALOG_STYLE is a theme.qss template: a dialog sets qss(DIALOG_STYLE) when it is made (it is modal, so the
+theme cannot change while it is open). Every child sets its own background: a dialog inherits the style
+sheet of the window it opens over, and the page background behind it would otherwise show through."""
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
+from dbmanager.ui.common.theme import qss
+
 DIALOG_STYLE = """
-    QDialog { background-color: #1e293b; }
+    QDialog { background-color: @surface; }
     QWidget#cell { background: transparent; }
-    QLabel { color: #cbd5e1; font-size: 13px; background: transparent; }
-    QLabel#heading { color: #f1f5f9; font-size: 20px; font-weight: bold; }
-    QLabel#caption { color: #94a3b8; font-size: 12px; font-weight: 600; }
-    QLabel#note { color: #94a3b8; font-size: 12px; }
+    QLabel { color: @text_secondary; font-size: 13px; background: transparent; }
+    /* Captions and notes are small: they keep the body's colour and differ in size and weight instead */
+    QLabel#heading { color: @text; font-size: 20px; font-weight: bold; }
+    QLabel#caption { color: @text_secondary; font-size: 12px; font-weight: 600; }
+    QLabel#note { color: @text_secondary; font-size: 12px; }
     QLineEdit {
-        background-color: #0f172a;
-        border: 2px solid #334155;
+        background-color: @sunken;
+        border: 2px solid @border_strong;
         border-radius: 10px;
         padding: 8px 14px;
         font-size: 14px;
-        color: #f1f5f9;
+        color: @text;
+        selection-background-color: @selection;
+        selection-color: @on_selection;
     }
-    QLineEdit:focus { border: 2px solid #0ea5e9; }
-    QLineEdit:disabled { color: #64748b; }
-    QCheckBox { color: #e2e8f0; font-size: 13px; background: transparent; spacing: 10px; }
+    QLineEdit:focus { border: 2px solid @focus; }
+    QLineEdit:disabled { color: @text_disabled; background-color: @surface_alt; }
+    QCheckBox { color: @text; font-size: 13px; background: transparent; spacing: 10px; }
     QCheckBox::indicator {
         width: 18px;
         height: 18px;
         border-radius: 5px;
-        border: 2px solid #475569;
-        background-color: #334155;
+        border: 2px solid @border_strong;
+        background-color: @sunken;
     }
-    QCheckBox::indicator:checked { background-color: #0ea5e9; border: 2px solid #0ea5e9; }
+    QCheckBox::indicator:checked { background-color: @accent; border: 2px solid @accent; }
     QTableWidget {
-        background-color: #0f172a;
-        color: #e2e8f0;
-        gridline-color: #1e293b;
-        border: 1px solid #334155;
+        background-color: @sunken;
+        color: @text;
+        gridline-color: @grid_line;
+        border: 1px solid @border;
         border-radius: 8px;
         font-size: 13px;
+        selection-background-color: @accent_subtle;
+        selection-color: @text;
     }
-    QScrollBar { background: #0f172a; width: 10px; height: 10px; margin: 0px; }
-    QScrollBar::handle { background: #334155; border-radius: 5px; min-height: 24px; min-width: 24px; }
+    QScrollBar { background: @surface_alt; width: 10px; height: 10px; margin: 0px; }
+    QScrollBar::handle { background: @scrollbar; border-radius: 5px; min-height: 24px; min-width: 24px; }
+    QScrollBar::handle:hover { background: @scrollbar_hover; }
     QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
     QHeaderView::section {
-        background-color: #1e293b;
-        color: #94a3b8;
+        background-color: @surface_alt;
+        color: @text_muted;
         border: none;
+        border-bottom: 1px solid @border;
         padding: 6px 8px;
         font-weight: 600;
     }
     QPushButton {
-        background-color: #334155;
-        color: #e2e8f0;
+        background-color: @surface_raised;
+        color: @text;
         border: none;
         border-radius: 8px;
         padding: 8px 16px;
         font-size: 13px;
         font-weight: 500;
     }
-    QPushButton:hover { background-color: #475569; color: #f1f5f9; }
-    QPushButton:disabled { background-color: #273449; color: #64748b; }
-    QPushButton#primary { background-color: #0ea5e9; color: white; font-weight: 600; }
-    QPushButton#primary:hover { background-color: #38bdf8; }
-    QPushButton#primary:disabled { background-color: #273449; color: #64748b; }
+    QPushButton:hover { background-color: @surface_pressed; color: @text; }
+    QPushButton:focus { border: 2px solid @focus; }
+    QPushButton:disabled { background-color: @surface_alt; color: @text_disabled; }
+    QPushButton#primary { background-color: @accent; color: @on_accent; font-weight: 600; }
+    QPushButton#primary:hover { background-color: @accent_hover; }
+    QPushButton#primary:disabled { background-color: @surface_alt; color: @text_disabled; }
     QPushButton#small { padding: 4px 10px; font-size: 12px; }
     QPushButton#small_primary {
-        background-color: #0ea5e9;
-        color: white;
+        background-color: @accent;
+        color: @on_accent;
         padding: 4px 10px;
         font-size: 12px;
         font-weight: 600;
     }
-    QPushButton#small_primary:hover { background-color: #38bdf8; }
+    QPushButton#small_primary:hover { background-color: @accent_hover; }
 """
 
-ERROR_COLOR = "#fca5a5"
-SUCCESS_COLOR = "#86efac"
+# Tokens for inline messages: wrap a style sheet that uses them in qss()
+ERROR_COLOR = "@danger_text"
+SUCCESS_COLOR = "@success_text"
 
 
 def label(text, kind=None, wrap=False):
@@ -128,5 +140,5 @@ def cell(*widgets):
 def show_status(widget, text, error=False):
     """An inline message under a form: red for a problem, green when something worked."""
     widget.setText(text)
-    widget.setStyleSheet(f"QLabel {{ color: {ERROR_COLOR if error else SUCCESS_COLOR}; font-size: 12px; "
-                         "background: transparent; }")
+    widget.setStyleSheet(qss(f"QLabel {{ color: {ERROR_COLOR if error else SUCCESS_COLOR}; font-size: 12px; "
+                             "background: transparent; }"))

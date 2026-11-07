@@ -2,15 +2,18 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QLabel, QMenu, QScrollArea, QVBoxLayout, QWidget
 
+from dbmanager.i18n import tr
 from dbmanager.model.links import plan_link
+from dbmanager.ui.common.preferences import changes
 from dbmanager.ui.common.style import MENU_STYLE
+from dbmanager.ui.common.theme import qss, style
 from dbmanager.ui.diagram.diagram_canvas import DiagramCanvas, link_end
 from dbmanager.ui.diagram.table_card import TableCard
 from dbmanager.ui.query.field_tag import aggregate_menu
 
 FIRST_X, FIRST_Y = 120, 80
 STEP_X, STEP_Y, LAST_X = 240, 320, 1000
-_SORTS = [(None, "Not sorted"), ("ASC", "Smallest first (A → Z, 1 → 9)"), ("DESC", "Largest first (Z → A, 9 → 1)")]
+_SORTS = [(None, "diagram.sort.none"), ("ASC", "diagram.sort.ascending"), ("DESC", "diagram.sort.descending")]
 
 
 def _type_of(row):
@@ -40,6 +43,7 @@ class DiagramPage(QWidget):
         if self.sql_builder:
             self.sql_builder.query_changed.connect(self._sync_rows)
             self.sql_builder.table_columns = self.table_columns  # what Join… offers
+            changes.changed.connect(self._sync_rows)  # the filters' tooltips describe them in the language
 
         self.table_area = DiagramCanvas()
         self.table_area.reset_size()
@@ -49,7 +53,7 @@ class DiagramPage(QWidget):
         canvas_scroll = QScrollArea()
         canvas_scroll.setWidgetResizable(True)
         canvas_scroll.setWidget(self.table_area)
-        canvas_scroll.setStyleSheet("QWidget { border: none; background-color: #f5f6f7; }")
+        style(canvas_scroll, "QWidget { border: none; background-color: @window; }")
         layout.addWidget(canvas_scroll)
 
         self.cards = {}
@@ -75,10 +79,11 @@ class DiagramPage(QWidget):
         self.table_area.links_enabled = allowed
 
     def show_notice(self, text, done=False):
-        colors = ("#14532d", "#bbf7d0", "#22c55e") if done else ("#422006", "#fde68a", "#f59e0b")
-        self.notice.setStyleSheet(f"QLabel {{ background-color: {colors[0]}; color: {colors[1]}; "
-                                  f"border: 1px solid {colors[2]}; border-radius: 8px; padding: 8px 14px; "
-                                  "font-size: 12px; }")
+        colors = ("@success_subtle", "@success_text", "@success") if done else \
+            ("@warning_subtle", "@warning_text", "@warning")
+        style(self.notice, f"QLabel {{ background-color: {colors[0]}; color: {colors[1]}; "
+                           f"border: 1px solid {colors[2]}; border-radius: 8px; padding: 8px 14px; "
+                           "font-size: 12px; }")
         self.notice.setText(text)
         self._place_notice()
         self.notice.show()
@@ -215,11 +220,13 @@ class DiagramPage(QWidget):
 
     def card_menu(self, card):
         menu = QMenu(self)
-        menu.setStyleSheet(MENU_STYLE)
-        menu.addAction("Open table").triggered.connect(lambda: self.open_table_requested.emit(card.table_name))
+        menu.setStyleSheet(qss(MENU_STYLE))
+        menu.addAction(tr("diagram.card_menu.open_table")).triggered.connect(
+            lambda: self.open_table_requested.emit(card.table_name))
         if self.can_change_structure:
             menu.addSeparator()
-            menu.addAction("Drop table…").triggered.connect(lambda: self.drop_table_requested.emit(card.table_name))
+            menu.addAction(tr("diagram.card_menu.drop_table")).triggered.connect(
+                lambda: self.drop_table_requested.emit(card.table_name))
         return menu
 
     def _open_card_menu(self, card, position):
@@ -240,36 +247,40 @@ class DiagramPage(QWidget):
         entry = builder.model.column(table, name)
 
         menu = QMenu(self)
-        menu.setStyleSheet(MENU_STYLE)
+        menu.setStyleSheet(qss(MENU_STYLE))
         menu.setToolTipsVisible(True)
         if entry is None:
-            menu.addAction("Add to query").triggered.connect(lambda: builder.add_field(table, name, type_name))
+            menu.addAction(tr("diagram.field_menu.add_to_query")).triggered.connect(
+                lambda: builder.add_field(table, name, type_name))
         else:
-            menu.addAction("Remove from query").triggered.connect(lambda: builder.remove_field(table, name))
+            menu.addAction(tr("diagram.field_menu.remove_from_query")).triggered.connect(
+                lambda: builder.remove_field(table, name))
 
         summarize = aggregate_menu(menu, f"{table}.{name}", type_name, entry.aggregate if entry else None)
-        summarize.setTitle("Summarize")
+        summarize.setTitle(tr("diagram.field_menu.summarize"))
         summarize.triggered.connect(
             lambda action: builder.set_column_aggregate(table, name, action.data(), type_name))
         menu.addMenu(summarize)
 
-        sort = menu.addMenu("Sort")
-        sort.setStyleSheet(MENU_STYLE)
-        for direction, text in _SORTS:
-            action = QAction(text, sort)
+        sort = menu.addMenu(tr("diagram.field_menu.sort"))
+        sort.setStyleSheet(qss(MENU_STYLE))
+        for direction, key in _SORTS:
+            action = QAction(tr(key), sort)
             action.setCheckable(True)
             action.setChecked((entry.sort if entry else None) == direction)
             action.triggered.connect(lambda checked=False, d=direction: builder.set_column_sort(table, name, d, type_name))
             sort.addAction(action)
 
         menu.addSeparator()
-        menu.addAction("Add filter…").triggered.connect(lambda: builder.edit_filter(table, name, type_name))
+        menu.addAction(tr("diagram.field_menu.add_filter")).triggered.connect(
+            lambda: builder.edit_filter(table, name, type_name))
         for index, condition in enumerate(builder.model.filters):
             if condition.key == (table, name):
-                action = menu.addAction(f"Change filter: {condition.describe()}")
+                action = menu.addAction(tr("diagram.field_menu.change_filter", filter=condition.describe()))
                 action.triggered.connect(lambda checked=False, i=index: builder.edit_filter(table, name, type_name, i))
         if builder.model.filters_on(table, name):
-            menu.addAction("Remove its filters").triggered.connect(lambda: builder.remove_filters_on(table, name))
+            menu.addAction(tr("diagram.field_menu.remove_filters")).triggered.connect(
+                lambda: builder.remove_filters_on(table, name))
 
         links = [connection for connection in self.table_area.connections if row in connection[:2]]
         if links:
@@ -280,11 +291,11 @@ class DiagramPage(QWidget):
             target = f"{other.table_card.table_name}.{other.field_data[0]}"
             link = (pk.table_card.table_name, pk.field_data[0], fk.table_card.table_name, fk.field_data[0])
             if self.is_saved_link(link):
-                action = menu.addAction(f"Linked to {target} by a foreign key")
+                action = menu.addAction(tr("diagram.field_menu.saved_link", target=target))
                 action.setEnabled(False)
             else:
-                action = menu.addAction(f"Remove link to {target}")
-                action.setToolTip("Drawn but not saved yet: the FOREIGN KEY it would add goes too")
+                action = menu.addAction(tr("diagram.field_menu.remove_link", target=target))
+                action.setToolTip(tr("diagram.field_menu.remove_link_tip"))
                 action.triggered.connect(lambda checked=False, c=connection: self.table_area.remove_connection(c))
         if self.can_change_structure:
             link_to = self._link_menu(row)
@@ -293,13 +304,14 @@ class DiagramPage(QWidget):
                     menu.addSeparator()
                 menu.addMenu(link_to)
             menu.addSeparator()
-            menu.addAction("Delete field…").triggered.connect(lambda: self.delete_field_requested.emit(table, name))
+            menu.addAction(tr("diagram.field_menu.delete_field")).triggered.connect(
+                lambda: self.delete_field_requested.emit(table, name))
         return menu
 
     def _link_menu(self, row):
         """Link to ▸ table ▸ field: the fields of the other tables this one can be linked to - without dragging"""
-        menu = QMenu("Link to", self)
-        menu.setStyleSheet(MENU_STYLE)
+        menu = QMenu(tr("diagram.field_menu.link_to"), self)
+        menu.setStyleSheet(qss(MENU_STYLE))
         source = link_end(row)
         for table_name, card in self.cards.items():
             if card is row.table_card:
@@ -310,10 +322,12 @@ class DiagramPage(QWidget):
             if not candidates:
                 continue
             submenu = menu.addMenu(table_name)
-            submenu.setStyleSheet(MENU_STYLE)
+            submenu.setStyleSheet(qss(MENU_STYLE))
             for other in candidates:
                 end = link_end(other)
-                text = f"{end.field}  ({'primary key' if end.primary else end.type_name or 'field'})"
+                kind = tr("diagram.field_menu.primary_key") if end.primary else \
+                    end.type_name or tr("diagram.field_menu.field")
+                text = f"{end.field}  ({kind})"
                 submenu.addAction(text).triggered.connect(
                     lambda checked=False, target=other: self.table_area.link(row, target))
         return menu if menu.actions() else None

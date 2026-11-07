@@ -4,6 +4,7 @@ key of another table (the parent); queries join the two tables on it."""
 
 from dataclasses import dataclass
 
+from dbmanager.i18n import tr
 from dbmanager.sql.generator import base_type, is_numeric_type, is_text_type
 
 
@@ -48,12 +49,11 @@ def plan_link(source, target):
     cannot be linked. source is where the link was started: when both are primary keys it is the parent
     (a one-to-one link)."""
     if source.table == target.table:
-        return f"{source} and {target} are in the same table: link a field to a key of another table."
+        return tr("model.links.same_table", source=source, target=target)
     if not source.primary and not target.primary:
-        return (f"Neither {source} nor {target} is a primary key (PK). A link goes from a field to the primary "
-                "key of another table - use Join… in the query panel to join on other fields.")
+        return tr("model.links.no_primary_key", source=source, target=target)
     parent, child = (source, target) if source.primary else (target, source)
     if not same_family(parent.type_name, child.type_name):
-        return (f"{parent} holds {parent.type_name} values and {child} holds {child.type_name} values: "
-                "a link needs fields that hold the same kind of values.")
+        return tr("model.links.different_kinds", parent=parent, parent_type=parent.type_name, child=child,
+                  child_type=child.type_name)
     return parent, child

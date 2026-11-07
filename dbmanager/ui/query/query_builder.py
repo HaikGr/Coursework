@@ -7,10 +7,14 @@ from PyQt6.QtWidgets import (
 
 from dbmanager.api import ApiError
 from dbmanager.db import DatabaseError
+from dbmanager.i18n import tr, trn
 from dbmanager.model.query import QueryModel
 from dbmanager.ui.common.busy import busy_cursor
+from dbmanager.ui.common.live import bind
 from dbmanager.ui.common.message_box import show_styled_message
+from dbmanager.ui.common.preferences import changes
 from dbmanager.ui.common.style import MONOSPACE, shortcut_text
+from dbmanager.ui.common.theme import style
 from dbmanager.ui.query.field_tag import ColumnTag, filter_chip, join_chip
 from dbmanager.ui.query.filter_dialog import FilterDialog
 from dbmanager.ui.query.highlighter import SQLHighlighter
@@ -23,16 +27,16 @@ _NEXT_SORT = {None: "ASC", "ASC": "DESC", "DESC": None}
 
 _HEADER_BUTTON = """
     QPushButton {
-        background-color: #334155;
-        color: #cbd5e1;
+        background-color: @surface_raised;
+        color: @text_secondary;
         border: none;
         border-radius: 4px;
         font-size: 10px;
         padding: 0 8px;
     }
-    QPushButton:hover { background-color: #475569; color: #f1f5f9; }
+    QPushButton:hover { background-color: @surface_pressed; color: @text; }
 """
-_HINT_STYLE = "QLabel { color: #64748b; font-size: 10px; background: transparent; padding: 2px 2px 6px 2px; }"
+_HINT_STYLE = "QLabel { color: @text_muted; font-size: 10px; background: transparent; padding: 2px 2px 6px 2px; }"
 
 
 def _clear_layout(layout):
@@ -76,10 +80,10 @@ class SQLQueryBuilder(QWidget):
         # Header
         header = QFrame()
         header.setFixedHeight(56)
-        header.setStyleSheet("""
+        style(header, """
             QFrame {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #3b82f6, stop:1 #1d4ed8);
+                    stop:0 @brand, stop:1 @accent_pressed);
                 border-top-left-radius: 12px;
                 border-top-right-radius: 12px;
             }
@@ -90,26 +94,27 @@ class SQLQueryBuilder(QWidget):
 
         icon_container = QFrame()
         icon_container.setFixedSize(32, 32)
-        icon_container.setStyleSheet("QFrame { background-color: rgba(255,255,255,0.2); border-radius: 6px; }")
+        style(icon_container, "QFrame { background-color: @brand_hover; border-radius: 6px; }")
         icon_layout = QHBoxLayout(icon_container)
         icon_layout.setContentsMargins(0, 0, 0, 0)
         icon_label = QLabel("</>")
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setStyleSheet("QLabel { color: white; font-size: 12px; font-weight: bold; background: transparent; "
-                                 "}")
+        style(icon_label, "QLabel { color: @on_brand; font-size: 12px; font-weight: bold; background: transparent; }")
         icon_layout.addWidget(icon_label)
         header_layout.addWidget(icon_container)
 
         text_container = QWidget()
-        text_container.setStyleSheet("QWidget { background: transparent; }")
+        style(text_container, "QWidget { background: transparent; }")
         text_layout = QVBoxLayout(text_container)
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(1)
-        title = QLabel("SQL Query Builder")
-        title.setStyleSheet("QLabel { color: white; font-size: 13px; font-weight: 700; background: transparent; }")
+        title = QLabel()
+        bind(title.setText, "query.builder.title")
+        style(title, "QLabel { color: @on_brand; font-size: 13px; font-weight: 700; background: transparent; }")
         text_layout.addWidget(title)
-        subtitle = QLabel("Visual query construction")
-        subtitle.setStyleSheet("QLabel { color: rgba(255,255,255,0.7); font-size: 9px; background: transparent; }")
+        subtitle = QLabel()
+        bind(subtitle.setText, "query.builder.subtitle")
+        style(subtitle, "QLabel { color: @on_brand_muted; font-size: 9px; background: transparent; }")
         text_layout.addWidget(subtitle)
         header_layout.addWidget(text_container)
         header_layout.addStretch()
@@ -118,7 +123,7 @@ class SQLQueryBuilder(QWidget):
 
         # Main content area
         content = QWidget()
-        content.setStyleSheet("QWidget { background-color: #0f172a; }")
+        style(content, "QWidget { background-color: @surface; }")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(10, 10, 10, 10)
         content_layout.setSpacing(8)
@@ -126,60 +131,64 @@ class SQLQueryBuilder(QWidget):
         # Database the query will run against
         self.connection_label = QLabel()
         self.connection_label.setWordWrap(True)
-        self.connection_label.setStyleSheet("QLabel { color: #94a3b8; font-size: 10px; background: transparent; }")
+        style(self.connection_label, "QLabel { color: @text_muted; font-size: 10px; background: transparent; }")
         content_layout.addWidget(self.connection_label)
 
-        # "N unsaved changes" with the way to throw them away next to it
+        # "N unsaved changes" with the way to throw them away under it: the button's name is long in some
+        # languages, and beside it the text would have no room left
         self.changes_bar = QWidget()
-        self.changes_bar.setStyleSheet("QWidget { background: transparent; }")
-        changes_layout = QHBoxLayout(self.changes_bar)
+        style(self.changes_bar, "QWidget { background: transparent; }")
+        changes_layout = QVBoxLayout(self.changes_bar)
         changes_layout.setContentsMargins(0, 0, 0, 0)
-        changes_layout.setSpacing(6)
+        changes_layout.setSpacing(4)
         self.changes_label = QLabel()
         self.changes_label.setWordWrap(True)
-        self.changes_label.setStyleSheet("QLabel { color: #fbbf24; font-size: 10px; font-weight: 600; "
-                                         "background: transparent; }")
-        changes_layout.addWidget(self.changes_label, stretch=1)
-        self.discard_btn = QPushButton("Discard")
+        style(self.changes_label, "QLabel { color: @warning_text; font-size: 10px; font-weight: 600; "
+                                  "background: transparent; }")
+        changes_layout.addWidget(self.changes_label)
+        self.discard_btn = QPushButton()
+        bind(self.discard_btn.setText, "common.action.discard")
         self.discard_btn.setFixedHeight(22)
         self.discard_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.discard_btn.setToolTip("Throw away every change that has not been run yet")
-        self.discard_btn.setStyleSheet("""
+        bind(self.discard_btn.setToolTip, "query.builder.discard_tip")
+        style(self.discard_btn, """
             QPushButton {
-                background-color: #7f1d1d;
-                color: #fca5a5;
+                background-color: @danger_subtle;
+                color: @danger_text;
                 border: none;
                 border-radius: 4px;
                 font-size: 10px;
                 font-weight: 600;
                 padding: 0 8px;
             }
-            QPushButton:hover { background-color: #991b1b; color: #fee2e2; }
+            QPushButton:hover { background-color: @danger; color: @on_danger; }
         """)
         self.discard_btn.clicked.connect(self.discard_requested.emit)
-        changes_layout.addWidget(self.discard_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        changes_layout.addWidget(self.discard_btn, alignment=Qt.AlignmentFlag.AlignRight)
         self.changes_bar.hide()
         content_layout.addWidget(self.changes_bar)
 
         # SQL Preview - Auto-scales with content (editable, so generated SQL can be adjusted before running)
         self.sql_editor = QTextEdit()
-        self.sql_editor.setStyleSheet(f"""
+        style(self.sql_editor, f"""
             QTextEdit {{
-                background-color: #1e293b;
-                color: #e2e8f0;
+                background-color: @code_background;
+                color: @code_text;
                 font-family: {MONOSPACE};
                 font-size: 11px;
                 border-radius: 8px;
                 padding: 8px;
-                border: 1px solid #334155;
+                border: 1px solid @border;
+                selection-background-color: @selection;
+                selection-color: @on_selection;
             }}
-            QScrollBar:vertical {{ background: #1e293b; width: 6px; border-radius: 3px; }}
-            QScrollBar::handle:vertical {{ background: #475569; border-radius: 3px; min-height: 20px; }}
-            QScrollBar:horizontal {{ background: #1e293b; height: 6px; border-radius: 3px; }}
-            QScrollBar::handle:horizontal {{ background: #475569; border-radius: 3px; min-width: 20px; }}
+            QScrollBar:vertical {{ background: @code_background; width: 6px; border-radius: 3px; }}
+            QScrollBar::handle:vertical {{ background: @scrollbar; border-radius: 3px; min-height: 20px; }}
+            QScrollBar:horizontal {{ background: @code_background; height: 6px; border-radius: 3px; }}
+            QScrollBar::handle:horizontal {{ background: @scrollbar; border-radius: 3px; min-width: 20px; }}
             QScrollBar::add-line, QScrollBar::sub-line {{ width: 0px; height: 0px; }}
         """)
-        self.sql_editor.setPlaceholderText("Pick fields or type SQL here")
+        bind(self.sql_editor.setPlaceholderText, "query.builder.editor_placeholder")
         self.sql_editor.setAcceptRichText(False)
         self.sql_editor.setMinimumHeight(80)
         self.sql_editor.setMaximumHeight(260)
@@ -191,9 +200,9 @@ class SQLQueryBuilder(QWidget):
         # What is odd about the query: tables that are not linked, a SUM of text...
         self.warning_label = QLabel()
         self.warning_label.setWordWrap(True)
-        self.warning_label.setStyleSheet("""
+        style(self.warning_label, """
             QLabel {
-                color: #fde68a; background-color: #422006; border-left: 3px solid #f59e0b;
+                color: @warning_text; background-color: @warning_subtle; border-left: 3px solid @warning;
                 border-radius: 4px; font-size: 10px; padding: 6px 8px;
             }
         """)
@@ -203,10 +212,10 @@ class SQLQueryBuilder(QWidget):
         self.join_unjoined_btn = QPushButton()
         self.join_unjoined_btn.setFixedHeight(26)
         self.join_unjoined_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.join_unjoined_btn.setStyleSheet("""
-            QPushButton { background-color: #0f766e; color: #f0fdfa; border: none; border-radius: 6px;
+        style(self.join_unjoined_btn, """
+            QPushButton { background-color: @option; color: @on_option; border: none; border-radius: 6px;
                           font-size: 11px; font-weight: 600; padding: 0 10px; }
-            QPushButton:hover { background-color: #0d9488; }
+            QPushButton:hover { background-color: @option_hover; }
         """)
         self.join_unjoined_btn.clicked.connect(
             lambda: self.edit_join(right_table=self.model.unjoined[0] if self.model.unjoined else None))
@@ -215,45 +224,45 @@ class SQLQueryBuilder(QWidget):
 
         # Columns and filters, scrolled together
         lists = QWidget()
-        lists.setStyleSheet("QWidget { background: transparent; }")
+        style(lists, "QWidget { background: transparent; }")
         lists_layout = QVBoxLayout(lists)
         lists_layout.setContentsMargins(0, 0, 4, 0)
         lists_layout.setSpacing(4)
 
         self.columns_title, columns_header = self._section_header()
-        clear_btn = QPushButton("Clear")
+        clear_btn = QPushButton()
+        bind(clear_btn.setText, "common.clear")
         clear_btn.setFixedHeight(20)
         clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet(_HEADER_BUTTON)
-        clear_btn.setToolTip("Start the query again: no columns, filters or options.\n"
-                             "Unsaved table changes stay - use Discard to drop them.")
+        style(clear_btn, _HEADER_BUTTON)
+        bind(clear_btn.setToolTip, lambda: tr("query.builder.clear_tip", discard=tr("common.action.discard")))
         clear_btn.clicked.connect(self.clear_query)
         columns_header.layout().addWidget(clear_btn)
         lists_layout.addWidget(columns_header)
-        self.columns_hint = QLabel("Click the circle at the end of a field on the diagram to add it here - "
-                                   "or right-click the field for more.")
+        self.columns_hint = QLabel()
+        bind(self.columns_hint.setText, "query.builder.columns_hint")
         self.columns_hint.setWordWrap(True)
-        self.columns_hint.setStyleSheet(_HINT_STYLE)
+        style(self.columns_hint, _HINT_STYLE)
         lists_layout.addWidget(self.columns_hint)
         self.columns_layout = QVBoxLayout()
         self.columns_layout.setSpacing(4)
         lists_layout.addLayout(self.columns_layout)
 
         self.joins_title, joins_header = self._section_header()
-        self.add_join_btn = QPushButton("+ Join")
+        self.add_join_btn = QPushButton()
+        bind(self.add_join_btn.setText, "query.builder.add_join")
         self.add_join_btn.setFixedHeight(20)
         self.add_join_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_join_btn.setStyleSheet(_HEADER_BUTTON)
-        self.add_join_btn.setToolTip("Join two tables on fields of your choice, or keep the rows that match nothing\n"
-                                     "(LEFT JOIN) - for this query only, the database is not changed")
+        style(self.add_join_btn, _HEADER_BUTTON)
+        bind(self.add_join_btn.setToolTip, "query.builder.add_join_tip")
         self.add_join_btn.clicked.connect(lambda: self.edit_join())
         joins_header.layout().addWidget(self.add_join_btn)
         lists_layout.addSpacing(6)
         lists_layout.addWidget(joins_header)
-        self.joins_hint = QLabel("Tables are joined along the links of the diagram. + Join joins them on other "
-                                 "fields, or keeps rows without a match.")
+        self.joins_hint = QLabel()
+        bind(self.joins_hint.setText, lambda: tr("query.builder.joins_hint", add_join=tr("query.builder.add_join")))
         self.joins_hint.setWordWrap(True)
-        self.joins_hint.setStyleSheet(_HINT_STYLE)
+        style(self.joins_hint, _HINT_STYLE)
         lists_layout.addWidget(self.joins_hint)
         self.joins_layout = QVBoxLayout()
         self.joins_layout.setSpacing(4)
@@ -263,16 +272,16 @@ class SQLQueryBuilder(QWidget):
         self.match_btn = QPushButton()
         self.match_btn.setFixedHeight(20)
         self.match_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.match_btn.setStyleSheet(_HEADER_BUTTON)
-        self.match_btn.setToolTip("All: a row must pass every filter (AND).\nAny: passing one of them is enough (OR).")
+        style(self.match_btn, _HEADER_BUTTON)
+        bind(self.match_btn.setToolTip, "query.builder.match_tip")
         self.match_btn.clicked.connect(lambda: self.set_match_any(not self.model.match_any))
         filters_header.layout().addWidget(self.match_btn)
         lists_layout.addSpacing(6)
         lists_layout.addWidget(filters_header)
-        self.filters_hint = QLabel("Right-click a field on the diagram and choose Add filter… "
-                                   "to keep only the rows you need.")
+        self.filters_hint = QLabel()
+        bind(self.filters_hint.setText, "query.builder.filters_hint")
         self.filters_hint.setWordWrap(True)
-        self.filters_hint.setStyleSheet(_HINT_STYLE)
+        style(self.filters_hint, _HINT_STYLE)
         lists_layout.addWidget(self.filters_hint)
         self.filters_layout = QVBoxLayout()
         self.filters_layout.setSpacing(4)
@@ -283,30 +292,31 @@ class SQLQueryBuilder(QWidget):
         lists_scroll.setWidgetResizable(True)
         lists_scroll.setFrameShape(QFrame.Shape.NoFrame)
         lists_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        lists_scroll.setStyleSheet("""
+        style(lists_scroll, """
             QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical { background: #1e293b; width: 6px; border-radius: 3px; }
-            QScrollBar::handle:vertical { background: #475569; border-radius: 3px; min-height: 20px; }
+            QScrollBar:vertical { background: @surface_alt; width: 6px; border-radius: 3px; }
+            QScrollBar::handle:vertical { background: @scrollbar; border-radius: 3px; min-height: 20px; }
             QScrollBar::add-line, QScrollBar::sub-line { height: 0px; }
         """)
         lists_scroll.setWidget(lists)
         content_layout.addWidget(lists_scroll, stretch=3)
 
-        run_btn = QPushButton("▶  Run Query")
+        run_btn = QPushButton()
+        bind(run_btn.setText, lambda: f"▶  {tr('common.action.run_query')}")
         run_btn.setFixedHeight(38)
         run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        run_btn.setToolTip(f"Run everything in the editor above ({shortcut_text(RUN_KEYS[0])})")
-        run_btn.setStyleSheet("""
+        bind(run_btn.setToolTip, "query.builder.run_tip", keys=shortcut_text(RUN_KEYS[0]))
+        style(run_btn, """
             QPushButton {
-                background-color: #3b82f6;
-                color: white;
+                background-color: @accent;
+                color: @on_accent;
                 border: none;
                 border-radius: 8px;
                 font-size: 12px;
                 font-weight: 700;
             }
             QPushButton:hover {
-                background-color: #2563eb;
+                background-color: @accent_hover;
             }
         """)
         run_btn.clicked.connect(self.run_query)
@@ -316,42 +326,44 @@ class SQLQueryBuilder(QWidget):
             shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(self.run_query)
 
-        self.copy_btn = QPushButton("Copy Query")
+        self.copy_btn = QPushButton()
+        bind(self.copy_btn.setText, "query.builder.copy")
         self.copy_btn.setFixedHeight(34)
         self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.copy_btn.setStyleSheet("""
+        style(self.copy_btn, """
             QPushButton {
-                background-color: #1e293b;
-                color: #94a3b8;
-                border: 1px solid #334155;
+                background-color: @surface_raised;
+                color: @text_secondary;
+                border: 1px solid @border;
                 border-radius: 8px;
                 font-size: 11px;
                 font-weight: 500;
             }
             QPushButton:hover {
-                background-color: #334155;
-                color: #e2e8f0;
+                background-color: @surface_pressed;
+                color: @text;
             }
         """)
         self.copy_btn.clicked.connect(self.copy_query)
         content_layout.addWidget(self.copy_btn)
         self._copied_timer = QTimer(self)  # "Copied ✓" turns back into "Copy Query"
         self._copied_timer.setSingleShot(True)
-        self._copied_timer.timeout.connect(lambda: self.copy_btn.setText("Copy Query"))
+        self._copied_timer.timeout.connect(lambda: bind(self.copy_btn.setText, "query.builder.copy"))
 
         main_layout.addWidget(content)
         self.set_connection(None)
         self._refresh(render=True)
+        changes.changed.connect(self._show_again)
 
     @staticmethod
     def _section_header():
         header = QWidget()
-        header.setStyleSheet("QWidget { background: transparent; }")
+        style(header, "QWidget { background: transparent; }")
         layout = QHBoxLayout(header)
         layout.setContentsMargins(0, 2, 0, 2)
         layout.setSpacing(6)
         title = QLabel()
-        title.setStyleSheet("QLabel { color: #fbbf24; font-size: 11px; font-weight: 700; background: transparent; }")
+        style(title, "QLabel { color: @warning_text; font-size: 11px; font-weight: 700; background: transparent; }")
         layout.addWidget(title)
         layout.addStretch()
         return title, header
@@ -370,9 +382,10 @@ class SQLQueryBuilder(QWidget):
         """Select the database (API connection dict, or None) the query runs against"""
         self.connection = connection
         if connection:
-            self.connection_label.setText(f"Database: {connection['dbName']}  ({connection['dbType']})")
+            bind(self.connection_label.setText, "query.builder.database", name=connection["dbName"],
+                 type=connection["dbType"])
         else:
-            self.connection_label.setText("No database selected - pick one in the sidebar")
+            bind(self.connection_label.setText, "query.builder.no_database")
         self._refresh()  # names are quoted the way this database reads them
 
     def set_connections(self, connections):
@@ -512,7 +525,7 @@ class SQLQueryBuilder(QWidget):
         """Ask for a join of the query (or a change to the one at index). True when the query changed."""
         tables = self.table_columns()
         if len(tables) < 2:
-            show_styled_message(self, "Join Tables", "There are no two tables on the diagram to join.",
+            show_styled_message(self, tr("query.join.title"), tr("query.builder.no_two_tables"),
                                 QMessageBox.Icon.Warning)
             return False
         existing = self.model.joins[index] if index is not None else None
@@ -574,8 +587,17 @@ class SQLQueryBuilder(QWidget):
         self.warning_label.setText("\n\n".join(self.warnings))
         self.warning_label.setVisible(bool(self.warnings))
         if self.model.unjoined:
-            self.join_unjoined_btn.setText(f"Join {self.model.unjoined[0]}…")
+            table = self.model.unjoined[0]
+            bind(self.join_unjoined_btn.setText, lambda: tr("query.builder.join_table", table=table))
         self.join_unjoined_btn.setVisible(bool(self.model.unjoined))
+        self._render_lists()
+
+    def _show_again(self):
+        """After a change of language or theme. The warnings and the lists are made from the model in the
+        language of the moment, and the tags and chips take the theme as they are made: make them again. The
+        SQL stays as it is - it may have been edited by hand."""
+        self.warnings = self.model.build(self._db_type())[1]
+        self.warning_label.setText("\n\n".join(self.warnings))
         self._render_lists()
 
     def _render_lists(self):
@@ -588,8 +610,9 @@ class SQLQueryBuilder(QWidget):
             tag.sort_clicked.connect(self._cycle_sort)
             tag.remove_clicked.connect(lambda key: self.remove_field(*key))
             self.columns_layout.addWidget(tag)
-        extra = "  +  row count" if self.model.count_rows and self.model.columns else ""
-        self.columns_title.setText(f"COLUMNS ({len(self.model.columns)}){extra}")
+        title = ("query.builder.columns_with_row_count" if self.model.count_rows and self.model.columns
+                 else "query.builder.columns")
+        bind(self.columns_title.setText, title, count=len(self.model.columns))
         self.columns_hint.setVisible(not self.model.columns)
 
         _clear_layout(self.joins_layout)
@@ -598,7 +621,7 @@ class SQLQueryBuilder(QWidget):
             chip.edit_clicked.connect(lambda i: self.edit_join(i))
             chip.remove_clicked.connect(self.remove_join)
             self.joins_layout.addWidget(chip)
-        self.joins_title.setText(f"JOINS ({len(self.model.joins)})")
+        bind(self.joins_title.setText, "query.builder.joins", count=len(self.model.joins))
         self.joins_hint.setVisible(not self.model.joins)
 
         _clear_layout(self.filters_layout)
@@ -607,17 +630,17 @@ class SQLQueryBuilder(QWidget):
             chip.edit_clicked.connect(self._edit_filter_at)
             chip.remove_clicked.connect(self.remove_filter)
             self.filters_layout.addWidget(chip)
-        self.filters_title.setText(f"FILTERS ({len(self.model.filters)})")
+        bind(self.filters_title.setText, "query.builder.filters", count=len(self.model.filters))
         self.filters_hint.setVisible(not self.model.filters)
-        self.match_btn.setText("Match any" if self.model.match_any else "Match all")
+        bind(self.match_btn.setText, "query.builder.match_any" if self.model.match_any else "query.builder.match_all")
         self.match_btn.setVisible(len(self.model.filters) > 1)
 
     def set_change_script(self, statements):
         """Show the SQL that saves the table editor's edits; Run executes it before any SELECT"""
         self.change_statements = list(statements)
         count = len(self.change_statements)
-        self.changes_label.setText(f"{count} unsaved change{'s' if count != 1 else ''} - "
-                                   "click Run Query to save them to the database")
+        bind(self.changes_label.setText,
+             lambda: trn("query.builder.unsaved_changes", count, run_query=tr("common.action.run_query")))
         self.changes_bar.setVisible(count > 0)
         self._render_editor()
 
@@ -638,22 +661,23 @@ class SQLQueryBuilder(QWidget):
         query = self.sql_editor.toPlainText()
         if query:
             QApplication.clipboard().setText(query)
-            self.copy_btn.setText("Copied ✓")
+            bind(self.copy_btn.setText, "query.builder.copied")
             self._copied_timer.start(1500)
 
     def run_query(self):
         sql = self.sql_editor.toPlainText().strip()
         if not sql:
-            show_styled_message(self, "Run Query", "There is no query to run yet.", QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("common.action.run_query"), tr("query.builder.nothing_to_run"),
+                                QMessageBox.Icon.Warning)
             return
         if not self.db or not self.connection:
-            show_styled_message(self, "Run Query", "Select a database in the sidebar first.",
+            show_styled_message(self, tr("common.action.run_query"), tr("query.builder.select_database"),
                                 QMessageBox.Icon.Warning)
             return
         problems = self.check_before_run() if self.change_statements else []
         if problems:
-            show_styled_message(self, "Not Run Yet", "The database would refuse these changes - nothing was run:\n\n• "
-                                + "\n• ".join(problems), QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("query.builder.not_run_title"),
+                                tr("query.builder.refused", problems="\n• ".join(problems)), QMessageBox.Icon.Warning)
             return
         connection = self.connection
         try:
@@ -661,7 +685,7 @@ class SQLQueryBuilder(QWidget):
                 result = self.db.run_script(connection, sql)
         except (DatabaseError, ApiError) as error:
             if not getattr(error, "cancelled", False):
-                show_styled_message(self, "Query Failed", str(error), QMessageBox.Icon.Critical)
+                show_styled_message(self, tr("query.builder.failed_title"), str(error), QMessageBox.Icon.Critical)
             return
         result = result or {}
         results = result.get("results") or []

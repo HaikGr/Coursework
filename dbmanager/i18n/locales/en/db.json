@@ -1,0 +1,28 @@
+{
+  "drivers": {
+    "not_supported": "{db_type} databases can be registered but not opened by this app - it supports {types}.",
+    "not_installed": "The driver for {db_type} databases is not installed: pip install \"{package}\"",
+    "login_refused": "the server refused the login (wrong user name or password, or no access to this database)",
+    "connect_failed": "Could not connect to {target}: {reason}",
+    "version_unknown": "{db_type} (could not read its version: {reason})",
+    "connected": "Connected to {server} in {ms} ms"
+  },
+  "client": {
+    "tables_unreadable": "Could not read the tables of '{database}': {reason}",
+    "nothing_to_run": "There is no statement to run.",
+    "password_unknown": "The password of '{database}' is not known. Enter it to open the database.",
+    "guest_login_refused": "Your login to '{database}' was refused. Its owner's app sets it up again when they open the database.",
+    "guest_logins_failed": "The logins for the people '{database}' is shared with could not be set up: {reason}\nYour database user needs the right to create users and grant permissions (for example PostgreSQL's CREATEROLE)."
+  },
+  "execute": {
+    "rejected": "The database rejected the statement: {reason}",
+    "rejected_in_script": "The database rejected statement {number} of {total} ({kind}) - nothing was saved: {reason}"
+  },
+  "guests": {
+    "not_supported": "Sharing is not supported for {db_type} databases"
+  },
+  "generator": {
+    "not_true_or_false": "holds true or false ({type_name}; also 1/0, yes/no), not \"{value}\"",
+    "not_a_number": "holds numbers ({type_name}), not \"{value}\""
+  }
+}

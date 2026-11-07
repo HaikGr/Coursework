@@ -1,7 +1,7 @@
 """The frame shared by the sign-in, sign-up and forgot-password windows."""
 
 from PyQt6.QtCore import QSize, Qt, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QVBoxLayout,
     QWidget
@@ -9,50 +9,57 @@ from PyQt6.QtWidgets import (
 
 from dbmanager.ui.common.animated_background import AnimatedBackground
 from dbmanager.ui.common.icons import EYE_CLOSED, EYE_OPEN, app_icon, svg_icon
+from dbmanager.ui.common.live import bind
+from dbmanager.ui.common.preferences import PreferencesButtons, changes
+from dbmanager.ui.common.theme import color, style, value
 from dbmanager.ui.common.transitions import WindowTransition
 
-APP_DESCRIPTION = "Visualize, manage, and optimize your databases\nwith powerful ERD tools and real-time collaboration"
-APP_FEATURES = ["✔ Interactive ERD Builder", "✔ Table Relationships"]
+APP_DESCRIPTION = "auth.description"
+APP_FEATURES = ["auth.feature_erd", "auth.feature_relationships"]
 
+# theme.qss templates
 INPUT_STYLE = """
     QLineEdit {
-        background: white;
+        background: @auth_input;
         border: 2px solid transparent;
         border-radius: 24px;
         padding: 12px 20px;
         font-size: 16px;
-        color: #4B5563;
+        color: @auth_input_text;
+        selection-background-color: @selection;
+        selection-color: @on_selection;
     }
-    QLineEdit:focus { border: 2px solid #93B9E8; }
+    QLineEdit:focus { border: 2px solid @focus; }
 """
 
-LINK_BUTTON_STYLE = "QPushButton { color:#3B82F6; background:transparent; border:none; }"
+LINK_BUTTON_STYLE = "QPushButton { color: @accent_text; background: transparent; border: none; }"
 
 
 def primary_button_style(radius, font_size):
     return f"""
         QPushButton {{
-            background-color: #3479f3;
-            color: white;
+            background-color: @accent;
+            color: @on_accent;
             font-size: {font_size}px;
             border-radius: {radius}px;
             font-weight: bold;
         }}
-        QPushButton:hover {{ background-color: #7BA3D0; }}
+        QPushButton:hover {{ background-color: @accent_hover; }}
     """
 
 
 class PasswordField(QWidget):
     """A password input with an eye button that shows/hides the text."""
 
-    def __init__(self, placeholder, width, height, style, toggle_size, icon_size, parent=None):
+    def __init__(self, placeholder, width, height, field_style, toggle_size, icon_size, parent=None, **params):
+        """placeholder: a catalogue key, its placeholders in params; field_style: a theme.qss template"""
         super().__init__(parent)
-        self.setStyleSheet("QWidget { background: transparent; }")
+        style(self, "QWidget { background: transparent; }")
 
         self.field = QLineEdit(self)
-        self.field.setPlaceholderText(placeholder)
+        bind(self.field.setPlaceholderText, placeholder, **params)
         self.field.setEchoMode(QLineEdit.EchoMode.Password)
-        self.field.setStyleSheet(style)
+        style(self.field, field_style)
         self.field.setTextMargins(0, 0, toggle_size, 0)  # what is typed stops before the eye button
         # At least as tall as the style makes a line edit, like the plain fields next to it
         self.field.ensurePolished()
@@ -62,18 +69,24 @@ class PasswordField(QWidget):
 
         self.toggle = QPushButton(self)
         self.toggle.setGeometry(width - toggle_size - 12, (height - toggle_size) // 2, toggle_size, toggle_size)
-        self.toggle.setIcon(svg_icon(EYE_CLOSED))
+        self._show_eye()
         self.toggle.setIconSize(QSize(icon_size, icon_size))
         self.toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.toggle.setToolTip("Show / hide password")
-        self.toggle.setStyleSheet("QPushButton { color: black; border: none; background: transparent; }")
+        bind(self.toggle.setToolTip, "auth.show_hide_password")
+        style(self.toggle, "QPushButton { border: none; background: transparent; }")
         self.toggle.clicked.connect(self.toggle_visibility)
 
     def toggle_visibility(self):
         hidden = self.field.echoMode() == QLineEdit.EchoMode.Password
         self.field.setEchoMode(QLineEdit.EchoMode.Normal if hidden else QLineEdit.EchoMode.Password)
-        self.toggle.setIcon(svg_icon(EYE_OPEN if hidden else EYE_CLOSED))
+        self._show_eye()
+
+    def _show_eye(self):
+        """An open eye while the password shows, in the colour of the text; a faint closed one otherwise."""
+        shown = self.field.echoMode() == QLineEdit.EchoMode.Normal
+        bind(self.toggle.setIcon, lambda: svg_icon(EYE_OPEN.format(stroke=value("auth_input_text")) if shown
+                                                   else EYE_CLOSED.format(stroke=value("text_disabled"))))
 
     def text(self):
         return self.field.text()
@@ -83,16 +96,16 @@ class PasswordField(QWidget):
 
 
 class AuthWindow(QMainWindow):
-    """Animated blue background, the app description on the left and a card on the right.
-    Subclasses fill self.card_layout."""
+    """Animated background, the app description on the left and a card on the right, the language and theme
+    pickers in the corner. Subclasses fill self.card_layout. Texts are catalogue keys."""
 
     def __init__(self, window_title, card_height, card_margins, card_spacing,
                  description=APP_DESCRIPTION, features=APP_FEATURES,
                  parent_window=None, geometry=None, fade_duration=350):
         super().__init__()
-        self.setWindowTitle(window_title)
+        bind(self.setWindowTitle, window_title)
         self.setWindowIcon(app_icon())
-        self.setStyleSheet("QWidget { background-color: #3B82F6; }")
+        style(self, "QWidget { background-color: @auth_background; }")
         self.parent_window = parent_window
         self.fade_duration = fade_duration
         if geometry:
@@ -103,7 +116,7 @@ class AuthWindow(QMainWindow):
         self.setCentralWidget(self.animated_bg)
 
         content = QWidget(self.animated_bg)
-        content.setStyleSheet("QWidget { background-color: transparent; }")
+        style(content, "QWidget { background-color: transparent; }")
         container_layout = QHBoxLayout(content)
         container_layout.setContentsMargins(60, 20, 60, 20)  # the card is centred: this only matters when small
         container_layout.setSpacing(50)
@@ -114,6 +127,13 @@ class AuthWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(content)
 
+        # Over the background in the top right corner, where it takes no room from the card
+        self.preferences = PreferencesButtons(self.animated_bg)
+        self.preferences.raise_()
+        self._headings = []  # (label, largest font size), fitted again when the language changes
+        changes.changed.connect(self._place_preferences)  # a language's names are wider or narrower
+        changes.changed.connect(self._fit_headings)
+
         self._first_show = True
 
     @staticmethod
@@ -122,18 +142,21 @@ class AuthWindow(QMainWindow):
         left.setContentsMargins(0, 160, 0, 0)
         left.setSpacing(25)
 
-        title = QLabel("Database\nManagement")
-        title.setStyleSheet("QLabel { color: white; font-size: 48px; font-weight: bold; }")
+        title = QLabel()
+        bind(title.setText, "auth.brand_title")
+        style(title, "QLabel { color: @on_brand; font-size: 48px; font-weight: bold; }")
         left.addWidget(title)
 
-        desc = QLabel(description)
-        desc.setStyleSheet("QLabel { color: rgba(255,255,255,0.9); font-size: 18px; }")
+        desc = QLabel()
+        bind(desc.setText, description)
+        style(desc, "QLabel { color: @on_brand_muted; font-size: 18px; }")
         desc.setWordWrap(True)
         left.addWidget(desc)
 
         for feature in features:
-            label = QLabel(feature)
-            label.setStyleSheet("QLabel { color: rgba(255,255,255,0.8); font-size: 16px; }")
+            label = QLabel()
+            bind(label.setText, feature)
+            style(label, "QLabel { color: @on_brand_muted; font-size: 16px; }")
             left.addWidget(label)
         left.addStretch()
         return left
@@ -141,13 +164,13 @@ class AuthWindow(QMainWindow):
     def _build_card(self, height, margins, spacing):
         card = QWidget()
         card.setFixedSize(380, height)
-        card.setStyleSheet("QWidget { background-color: #C5D9F5; border-radius: 40px; }")
+        style(card, "QWidget { background-color: @auth_card; border-radius: 40px; }")
 
-        shadow = QGraphicsDropShadowEffect()
+        shadow = QGraphicsDropShadowEffect(card)
         shadow.setBlurRadius(40)
         shadow.setXOffset(0)
         shadow.setYOffset(8)
-        shadow.setColor(QColor(0, 0, 0, 120))
+        bind(shadow.setColor, lambda: color("shadow", alpha=120))
         card.setGraphicsEffect(shadow)
 
         self.card_layout = QVBoxLayout(card)
@@ -156,18 +179,49 @@ class AuthWindow(QMainWindow):
         return card
 
     def add_heading(self, text, font_size, subtitle=None):
-        """The card's title, and the subtitle under it if one is given: returns the subtitle's label"""
-        heading = QLabel(text)
+        """The card's title, and the subtitle under it if one is given (catalogue keys): returns the subtitle's
+        label, word-wrapped - a translation may be longer than the card is wide"""
+        heading = QLabel()
+        bind(heading.setText, text)
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        heading.setStyleSheet(f"QLabel {{ font-size: {font_size}px; color: #4B5563; font-weight: bold; }}")
+        self._headings.append((heading, font_size))
+        self._fit_heading(heading, font_size)
         self.card_layout.addWidget(heading)
         if subtitle:
-            plain_text = QLabel(subtitle)
+            plain_text = QLabel()
+            bind(plain_text.setText, subtitle)
             plain_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            plain_text.setStyleSheet("QLabel { font-size: 15px; color: #838b99; }")
+            plain_text.setWordWrap(True)
+            style(plain_text, "QLabel { font-size: 15px; color: @auth_text; }")
             self.card_layout.addWidget(plain_text)
             return plain_text
         return None
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_preferences()
+
+    def _place_preferences(self):
+        self.preferences.adjustSize()
+        self.preferences.move(self.animated_bg.width() - self.preferences.width() - 20, 14)
+
+    def _fit_headings(self):
+        for heading, font_size in self._headings:
+            self._fit_heading(heading, font_size)
+
+    def _fit_heading(self, heading, font_size):
+        """The heading on one line: at font_size, or smaller where a language's words are longer"""
+        margins = self.card_layout.contentsMargins()
+        room = self.card_layout.parentWidget().width() - margins.left() - margins.right()
+        font = QFont(heading.font())
+        font.setBold(True)
+        size = font_size
+        while size > 18:
+            font.setPixelSize(size)
+            if QFontMetrics(font).horizontalAdvance(heading.text()) <= room:
+                break
+            size -= 2
+        style(heading, f"QLabel {{ font-size: {size}px; color: @auth_heading; font-weight: bold; }}")
 
     def showEvent(self, event):
         super().showEvent(event)

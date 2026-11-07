@@ -25,6 +25,7 @@ from dbmanager.db.execute import run_statements
 from dbmanager.db.passwords import default_passwords
 from dbmanager.db.schema import read_schema
 from dbmanager.db.script import split_script
+from dbmanager.i18n import tr
 
 log = logging.getLogger(__name__)
 
@@ -93,8 +94,8 @@ class DatabaseClient:
         try:
             return read_schema(db_connection, connection["dbType"])
         except Exception as error:  # noqa: BLE001
-            raise DatabaseError(f"Could not read the tables of '{connection['dbName']}': "
-                                f"{drivers.error_message(error)}") from None
+            raise DatabaseError(tr("db.client.tables_unreadable", database=connection["dbName"],
+                                   reason=drivers.error_message(error))) from None
         finally:
             db_connection.close()
 
@@ -106,7 +107,7 @@ class DatabaseClient:
         """';'-separated statements in one transaction: {"results": [...], "durationMs": n}"""
         statements = split_script(sql, connection["dbType"])
         if not statements:
-            raise DatabaseError("There is no statement to run.")
+            raise DatabaseError(tr("db.client.nothing_to_run"))
         return self._run(connection, statements, None, report=True)
 
     def _run(self, connection, statements, max_rows, report):
@@ -116,7 +117,7 @@ class DatabaseClient:
             results, duration = run_statements(db_connection, connection["dbType"], statements, limit)
         except DatabaseError as error:
             if report:
-                self._report(connection, "QUERY_FAILED", f"{error} | {'; '.join(statements)}", False)
+                self._report(connection, "QUERY_FAILED", f"{error.record} | {'; '.join(statements)}", False)
             raise
         finally:
             db_connection.close()
@@ -175,8 +176,8 @@ class DatabaseClient:
     def _ask(self, connection, problem):
         password = self.ask_password(connection, problem) if self.ask_password else None
         if not password:
-            raise DatabaseError(f"The password of '{connection['dbName']}' is not known. "
-                                "Enter it to open the database.", cancelled=self.ask_password is not None)
+            raise DatabaseError(tr("db.client.password_unknown", database=connection["dbName"]),
+                                cancelled=self.ask_password is not None)
         return password
 
     def _open_as_guest(self, connection):
@@ -193,8 +194,8 @@ class DatabaseClient:
         except DatabaseError as error:
             if not error.refused_login:
                 raise
-            raise DatabaseError(f"Your login to '{connection['dbName']}' was refused. Its owner's app sets it up "
-                                "again when they open the database.", unreachable=True, refused_login=True) from None
+            raise DatabaseError(tr("db.client.guest_login_refused", database=connection["dbName"]),
+                                unreachable=True, refused_login=True) from None
 
     def _collect_guest_login(self, connection):
         credentials = self.api.guest_credentials(connection["id"])
@@ -267,9 +268,8 @@ class DatabaseClient:
         except DatabaseError:
             raise
         except Exception as error:  # noqa: BLE001 - the driver's error: most often a missing right
-            raise DatabaseError(f"The logins for the people '{connection['dbName']}' is shared with could not be "
-                                f"set up: {drivers.error_message(error)}\nYour database user needs the right to "
-                                "create users and grant permissions (for example PostgreSQL's CREATEROLE).") from None
+            raise DatabaseError(tr("db.client.guest_logins_failed", database=connection["dbName"],
+                                   reason=drivers.error_message(error))) from None
         finally:
             db_connection.close()
         return {"created": actions["create"], "dropped": actions["drop"], "passwords": passwords,

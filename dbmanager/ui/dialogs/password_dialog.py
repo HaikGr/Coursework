@@ -3,8 +3,10 @@
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLineEdit, QVBoxLayout
 
 from dbmanager.api import describe_connection
+from dbmanager.i18n import tr
 from dbmanager.ui.common.dark_dialog import DIALOG_STYLE, button, label, show_status
 from dbmanager.ui.common.icons import app_icon
+from dbmanager.ui.common.theme import qss
 
 
 class DatabasePasswordDialog(QDialog):
@@ -13,22 +15,21 @@ class DatabasePasswordDialog(QDialog):
     def __init__(self, parent, connection, problem=None):
         super().__init__(parent)
         self.password = None
-        self.setWindowTitle("Database Password")
+        self.setWindowTitle(tr("dialogs.password.title"))
         self.setWindowIcon(app_icon())
         self.setMinimumWidth(480)
-        self.setStyleSheet(DIALOG_STYLE)
+        self.setStyleSheet(qss(DIALOG_STYLE))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(8)
 
-        layout.addWidget(label(f"Password for '{connection['dbName']}'", "heading"))
+        layout.addWidget(label(tr("dialogs.password.heading", name=connection['dbName']), "heading"))
         layout.addWidget(label(describe_connection(connection), "note"))
-        layout.addWidget(label("This app connects to your database itself. Once it works, the password is saved "
-                               "with your account (encrypted), so you are not asked again.", wrap=True))
+        layout.addWidget(label(tr("dialogs.password.explanation"), wrap=True))
         layout.addSpacing(6)
 
-        layout.addWidget(label(f"Password of {connection['dbUsername']}", "caption"))
+        layout.addWidget(label(tr("dialogs.password.caption", user=connection['dbUsername']), "caption"))
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.returnPressed.connect(self.accept)
@@ -42,14 +43,14 @@ class DatabasePasswordDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        buttons.addWidget(button("Cancel", on_click=self.reject))
-        buttons.addWidget(button("Connect", "primary", self.accept))
+        buttons.addWidget(button(tr("common.cancel"), on_click=self.reject))
+        buttons.addWidget(button(tr("dialogs.database.connect"), "primary", self.accept))
         layout.addLayout(buttons)
         self.password_input.setFocus()
 
     def accept(self):
         if not self.password_input.text():
-            show_status(self.status, "Type the password, or Cancel.", error=True)
+            show_status(self.status, tr("dialogs.password.missing", cancel=tr("common.cancel")), error=True)
             return
         self.password = self.password_input.text()
         super().accept()

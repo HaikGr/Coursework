@@ -1,40 +1,44 @@
 """ValuePanel - the whole value of the selected cell, under a data grid whose columns cut long values short."""
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QGuiApplication, QPalette
+from PyQt6.QtGui import QGuiApplication, QPalette
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QSizePolicy, QSplitter, QVBoxLayout
 )
 
+from dbmanager.i18n import tr, trn
 from dbmanager.model.table_state import NULL_TEXT
 from dbmanager.ui.common.data_grid import SCROLLBAR_STYLE
 from dbmanager.ui.common.elided_label import ElidedLabel
+from dbmanager.ui.common.live import bind
 from dbmanager.ui.common.style import MONOSPACE
+from dbmanager.ui.common.theme import color, style
 
 # The type is cut past this (a MySQL enum lists all its values), whole in its tooltip
 TYPE_CHIP_WIDTH = 160
 # Its height the first time it opens under a grid; after that, what the user dragged it to
 PANEL_HEIGHT = 180
 
+# theme.qss templates
 PANEL_STYLE = f"""
-    QFrame#valuePanel {{ background-color: #252D3A; border-top: 1px solid #3D4852; }}
-    QLabel {{ color: #E2E8F0; background: transparent; font-size: 12px; }}
+    QFrame#valuePanel {{ background-color: @surface_alt; border-top: 1px solid @border; }}
+    QLabel {{ color: @text; background: transparent; font-size: 12px; }}
     QLabel#valueTitle {{ font-weight: 600; }}
-    QLabel#valueType {{ background-color: #4A5568; border-radius: 4px; font-size: 10px; padding: 1px 8px; }}
-    QLabel#valueWhere, QLabel#valueStatus {{ color: #A0AEC0; font-size: 11px; }}
-    QPlainTextEdit {{ background-color: #1A202C; color: #F7FAFC; border: none; padding: 4px 6px;
+    QLabel#valueType {{ background-color: @surface_raised; border-radius: 4px; font-size: 10px; padding: 1px 8px; }}
+    QLabel#valueWhere, QLabel#valueStatus {{ color: @text_muted; font-size: 11px; }}
+    QPlainTextEdit {{ background-color: @sunken; color: @text; border: none; padding: 4px 6px;
                       font-family: {MONOSPACE}; font-size: 12px;
-                      selection-background-color: #3777f0; selection-color: #FFFFFF; }}
-    QPushButton {{ background-color: #4A5568; color: #E2E8F0; border: none; border-radius: 4px;
+                      selection-background-color: @selection; selection-color: @on_selection; }}
+    QPushButton {{ background-color: @surface_raised; color: @text; border: none; border-radius: 4px;
                    font-size: 11px; padding: 3px 10px; }}
-    QPushButton:hover {{ background-color: #5A6A7D; }}
-    QPushButton:checked {{ background-color: #3777f0; color: #FFFFFF; }}
-    QPushButton:disabled {{ background-color: #2D3748; color: #718096; }}
-    QPushButton#valueClose {{ background-color: transparent; color: #A0AEC0; font-size: 13px; padding: 0px 6px; }}
-    QPushButton#valueClose:hover {{ background-color: #4A5568; color: #FFFFFF; }}
+    QPushButton:hover {{ background-color: @surface_pressed; }}
+    QPushButton:checked {{ background-color: @accent; color: @on_accent; }}
+    QPushButton:disabled {{ background-color: @surface; color: @text_disabled; }}
+    QPushButton#valueClose {{ background-color: transparent; color: @text_muted; font-size: 13px; padding: 0px 6px; }}
+    QPushButton#valueClose:hover {{ background-color: @surface_raised; color: @text; }}
 """ + SCROLLBAR_STYLE
 
-PROBLEM_STYLE = "QLabel { color: #fbbf24; }"
+PROBLEM_STYLE = "QLabel { color: @warning_text; }"
 
 
 def is_null(value):
@@ -56,7 +60,7 @@ class ValuePanel(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("valuePanel")
-        self.setStyleSheet(PANEL_STYLE)
+        style(self, PANEL_STYLE)
         self._null = False
         self._note = ""
         self._sized = False
@@ -78,7 +82,7 @@ class ValuePanel(QFrame):
         self.where.setObjectName("valueWhere")
         close = QPushButton("✕")
         close.setObjectName("valueClose")
-        close.setToolTip("Hide the value panel")
+        bind(close.setToolTip, "table_editor.value_panel.close_tip")
         close.setCursor(Qt.CursorShape.PointingHandCursor)
         close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         close.clicked.connect(self._close)
@@ -91,9 +95,7 @@ class ValuePanel(QFrame):
 
         self.editor = QPlainTextEdit()
         self.editor.setFrameShape(QFrame.Shape.NoFrame)
-        palette = self.editor.palette()
-        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor("#718096"))
-        self.editor.setPalette(palette)
+        bind(self.editor.setPalette, self._editor_palette)
         self.editor.textChanged.connect(self._on_text_changed)
         self.editor.installEventFilter(self)
         layout.addWidget(self.editor, 1)
@@ -108,13 +110,13 @@ class ValuePanel(QFrame):
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         footer.addWidget(self.status, 1)
         # Buttons take no focus: clicking one must not count as leaving the editor (editing_finished)
-        self.wrap_btn = self._button("Wrap", "Wrap long lines at the panel's width")
+        self.wrap_btn = self._button("table_editor.value_panel.wrap", "table_editor.value_panel.wrap_tip")
         self.wrap_btn.setCheckable(True)
         self.wrap_btn.setChecked(True)
         self.wrap_btn.toggled.connect(self._set_wrap)
-        self.copy_btn = self._button("Copy", "Copy the whole value")
+        self.copy_btn = self._button("common.copy", "table_editor.value_panel.copy_tip")
         self.copy_btn.clicked.connect(self._copy)
-        self.null_btn = self._button("Set NULL", "Leave this cell without a value")
+        self.null_btn = self._button("table_editor.value_panel.set_null", "table_editor.value_panel.set_null_tip")
         self.null_btn.clicked.connect(self._set_null)
         for button in (self.wrap_btn, self.copy_btn, self.null_btn):
             footer.addWidget(button)
@@ -124,14 +126,16 @@ class ValuePanel(QFrame):
         self._copied = QTimer(self)
         self._copied.setSingleShot(True)
         self._copied.setInterval(1200)
-        self._copied.timeout.connect(lambda: self.copy_btn.setText("Copy"))
+        self._copied.timeout.connect(lambda: bind(self.copy_btn.setText, "common.copy"))
 
         self.show_nothing()
 
     @staticmethod
     def _button(text, tooltip):
-        button = QPushButton(text)
-        button.setToolTip(tooltip)
+        """text, tooltip: catalogue keys"""
+        button = QPushButton()
+        bind(button.setText, text)
+        bind(button.setToolTip, tooltip)
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         return button
@@ -151,7 +155,7 @@ class ValuePanel(QFrame):
     def show_value(self, title, type_name, value, where="", editable=False, note=""):
         """One cell: its column's name and type, where it is ("row 3"), its value (None or NULL for none).
         note: why it cannot be edited here, when the grid does not make that plain."""
-        self.title.setText(title)
+        bind(self.title.setText, lambda: title)  # in place of "No cell selected"
         self._set_type(type_name)
         self.where.setText(where)
         self._note = note
@@ -160,19 +164,19 @@ class ValuePanel(QFrame):
         self._show_text(None if is_null(value) else str(value))
 
     def show_nothing(self):
-        self.title.setText("No cell selected")
+        bind(self.title.setText, "table_editor.value_panel.no_cell")
         self._set_type("")
         self.where.setText("")
         self._note = ""
         self.editor.setReadOnly(True)
         self.null_btn.setVisible(False)
-        self._show_text(None, placeholder="Select a cell to see its whole value here")
-        self.status.setText("")
+        self._show_text(None, placeholder="table_editor.value_panel.select_cell")
+        bind(self.status.setText, lambda: "")
 
     def set_problem(self, problem):
         """Why the text typed was not taken, or None once it was"""
-        self.status.setText(problem or self._describe())
-        self.status.setStyleSheet(PROBLEM_STYLE if problem else "")
+        bind(self.status.setText, lambda: problem or self._describe())
+        style(self.status, PROBLEM_STYLE if problem else "")
 
     def text(self):
         return self.editor.toPlainText()
@@ -189,28 +193,37 @@ class ValuePanel(QFrame):
         self.type_chip.setToolTip(type_name if shown != type_name else "")
 
     def _show_text(self, text, placeholder=None):
+        """placeholder: a catalogue key, for an editor with no text in it (else NULL, or empty text)"""
         self._null = text is None
         self.editor.blockSignals(True)  # what the cell holds already: not an edit
         self.editor.setPlainText(text or "")
         self.editor.blockSignals(False)
-        self.editor.setPlaceholderText(placeholder or ("NULL" if self._null else "empty text"))
+        bind(self.editor.setPlaceholderText, lambda null=self._null: tr(placeholder) if placeholder
+             else "NULL" if null else tr("table_editor.value_panel.empty_text"))
         self.copy_btn.setEnabled(not self._null)
         self.null_btn.setEnabled(not self._null)
         self.set_problem(None)
 
     def _describe(self):
         if self._null:
-            text = "NULL - no value"
+            text = tr("table_editor.value_panel.null_value")
         else:
             count = len(self.editor.toPlainText())
             lines = self.editor.blockCount()
-            text = f"{count:,} character{'s' if count != 1 else ''}" + (f" · {lines:,} lines" if lines > 1 else "")
+            text = trn("table_editor.value_panel.characters", count) + (
+                f" · {trn('table_editor.value_panel.lines', lines)}" if lines > 1 else "")
         return f"{text} · {self._note}" if self._note else text
+
+    def _editor_palette(self):
+        """The editor's palette with its placeholder (NULL, empty text) in the theme's faint colour"""
+        palette = self.editor.palette()
+        palette.setColor(QPalette.ColorRole.PlaceholderText, color("placeholder"))
+        return palette
 
     # ---------------- What is done ----------------
     def _on_text_changed(self):
         self._null = False
-        self.editor.setPlaceholderText("empty text")
+        bind(self.editor.setPlaceholderText, "table_editor.value_panel.empty_text")
         self.copy_btn.setEnabled(True)
         self.null_btn.setEnabled(True)
         self.set_problem(None)
@@ -222,7 +235,7 @@ class ValuePanel(QFrame):
 
     def _copy(self):
         QGuiApplication.clipboard().setText(self.editor.toPlainText())
-        self.copy_btn.setText("Copied")
+        bind(self.copy_btn.setText, "table_editor.value_panel.copied")
         self._copied.start()
 
     def _set_wrap(self, wrap):

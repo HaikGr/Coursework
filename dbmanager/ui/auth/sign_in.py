@@ -10,39 +10,44 @@ from dbmanager.ui.auth.base import (
 )
 from dbmanager.ui.auth.forgot_password import ForgotPasswordWindow
 from dbmanager.ui.auth.sign_up import SignUpWindow
+from dbmanager.i18n import tr
 from dbmanager.ui.common.busy import busy_cursor
+from dbmanager.ui.common.live import bind
+from dbmanager.ui.common.theme import style
 from dbmanager.ui.common.transitions import WindowTransition
 from dbmanager.ui.dashboard.dashboard_window import DashboardWindow
 
 
 class SignInWindow(AuthWindow):
     def __init__(self):
-        super().__init__("Database Management", card_height=600, card_margins=(30, 50, 30, 30),
+        super().__init__("auth.app_title", card_height=600, card_margins=(30, 50, 30, 30),
                          card_spacing=20, fade_duration=400)
-        self.add_heading("Welcome Back", 40, "Sign in to continue to your database")
+        self.add_heading("auth.sign_in.heading", 40, "auth.sign_in.subtitle")
 
         self.username = QLineEdit()
-        self.username.setPlaceholderText("Username or Email")
-        self.username.setStyleSheet(INPUT_STYLE)
+        bind(self.username.setPlaceholderText, "auth.sign_in.username")
+        style(self.username, INPUT_STYLE)
         self.username.returnPressed.connect(self.attempt_signin)
         self.card_layout.addWidget(self.username)
 
-        self.password = PasswordField("Password", 320, 50, INPUT_STYLE, toggle_size=34, icon_size=22)
+        self.password = PasswordField("auth.sign_in.password", 320, 50, INPUT_STYLE, toggle_size=34, icon_size=22)
         self.password.field.returnPressed.connect(self.attempt_signin)
         self.card_layout.addWidget(self.password)
 
         # Remember + Forgot
         remember_layout = QHBoxLayout()
         remember_layout.setSpacing(10)
-        self.remember = QCheckBox("Remember me")
-        self.remember.setStyleSheet("QCheckBox { color: #8691a0; font-size: 14px; }")
+        self.remember = QCheckBox()
+        bind(self.remember.setText, "auth.sign_in.remember")
+        style(self.remember, "QCheckBox { color: @auth_text; font-size: 14px; }")
         self.settings = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION)
         remembered = self.settings.value("remembered_username", "")
         if remembered:
             self.username.setText(remembered)
             self.remember.setChecked(True)
-        forgot = QPushButton("Forgot password?")
-        forgot.setStyleSheet(LINK_BUTTON_STYLE)
+        forgot = QPushButton()
+        bind(forgot.setText, "auth.sign_in.forgot")
+        style(forgot, LINK_BUTTON_STYLE)
         forgot.setCursor(Qt.CursorShape.PointingHandCursor)
         forgot.clicked.connect(self.open_forgot_password)
         remember_layout.addWidget(self.remember)
@@ -51,20 +56,23 @@ class SignInWindow(AuthWindow):
         self.card_layout.addLayout(remember_layout)
         self.card_layout.addSpacing(30)
 
-        connect_btn = QPushButton("Connect")
+        connect_btn = QPushButton()
+        bind(connect_btn.setText, "auth.sign_in.connect")
         connect_btn.setFixedSize(120, 120)
         connect_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        connect_btn.setStyleSheet(primary_button_style(radius=60, font_size=18))
+        style(connect_btn, primary_button_style(radius=60, font_size=18))
         connect_btn.clicked.connect(self.attempt_signin)
         self.card_layout.addWidget(connect_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
         signup_row = QHBoxLayout()
-        lbl = QLabel("Don't have an account?")
-        lbl.setStyleSheet("QLabel { color:#4B5563; font-size:14px; }")
+        lbl = QLabel()
+        bind(lbl.setText, "auth.sign_in.no_account")
+        style(lbl, "QLabel { color: @auth_text; font-size: 14px; }")
         signup_row.addStretch()
         signup_row.addWidget(lbl)
-        signup_btn = QPushButton("SIGN UP")
-        signup_btn.setStyleSheet(LINK_BUTTON_STYLE)
+        signup_btn = QPushButton()
+        bind(signup_btn.setText, "auth.sign_in.sign_up")
+        style(signup_btn, LINK_BUTTON_STYLE)
         signup_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         signup_btn.clicked.connect(self.switch_to_signup)
         signup_row.addWidget(signup_btn)
@@ -87,7 +95,7 @@ class SignInWindow(AuthWindow):
         username = self.username.text().strip()
         password = self.password.text()
         if not username or not password:
-            QMessageBox.warning(self, "Sign In Error", "Please enter both username/email and password.")
+            QMessageBox.warning(self, tr("auth.sign_in.error_title"), tr("auth.sign_in.missing"))
             return
 
         api = ApiClient()
@@ -95,7 +103,7 @@ class SignInWindow(AuthWindow):
             with busy_cursor():
                 api.login(username, password)
         except ApiError as error:
-            QMessageBox.warning(self, "Sign In Error", str(error))
+            QMessageBox.warning(self, tr("auth.sign_in.error_title"), str(error))
             return
 
         if self.remember.isChecked():

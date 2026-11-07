@@ -2,28 +2,31 @@
 
 from PyQt6.QtWidgets import QComboBox, QDialog, QGridLayout, QHBoxLayout, QVBoxLayout
 
+from dbmanager.i18n import tr
 from dbmanager.model.links import same_family
 from dbmanager.model.query import JOIN_KINDS, Join
 from dbmanager.sql.identifiers import quote_identifier
 from dbmanager.ui.common.dark_dialog import DIALOG_STYLE, ERROR_COLOR, button, label
 from dbmanager.ui.common.style import COMBO_ARROW, MONOSPACE
+from dbmanager.ui.common.theme import qss
 
+# A theme.qss template: the dialog is modal, so it takes the theme as it is when made
 _STYLE = DIALOG_STYLE + COMBO_ARROW + f"""
     QComboBox {{
-        background-color: #0f172a; color: #f1f5f9; border: 2px solid #334155; border-radius: 10px;
+        background-color: @sunken; color: @text; border: 2px solid @border_strong; border-radius: 10px;
         padding: 8px 14px; font-size: 14px;
     }}
-    QComboBox:focus {{ border: 2px solid #0ea5e9; }}
+    QComboBox:focus {{ border: 2px solid @focus; }}
     QComboBox QAbstractItemView {{
-        background-color: #0f172a; color: #f1f5f9; selection-background-color: #0ea5e9;
-        border: 1px solid #334155; outline: none;
+        background-color: @sunken; color: @text; selection-background-color: @selection;
+        selection-color: @on_selection; border: 1px solid @border_strong; outline: none;
     }}
     QLabel#preview {{
-        color: #a5f3fc; background-color: #0f172a; border: 1px solid #334155; border-radius: 8px;
+        color: @code_text; background-color: @code_background; border: 1px solid @border; border-radius: 8px;
         padding: 8px 10px; font-family: {MONOSPACE}; font-size: 12px;
     }}
-    QPushButton#danger {{ background-color: transparent; color: #fca5a5; padding: 8px 4px; }}
-    QPushButton#danger:hover {{ color: #fecaca; text-decoration: underline; }}
+    QPushButton#danger {{ background-color: transparent; color: @danger_text; padding: 8px 4px; }}
+    QPushButton#danger:hover {{ color: @danger_text; text-decoration: underline; }}
 """
 
 
@@ -63,26 +66,25 @@ class JoinDialog(QDialog):
         self.db_type = db_type
         self.result = None
         self.removed = False
-        self.setWindowTitle("Change Join" if existing else "Join Tables")
-        self.setStyleSheet(_STYLE)
+        self.setWindowTitle(tr("query.join.change_title" if existing else "query.join.title"))
+        self.setStyleSheet(qss(_STYLE))
         self.setMinimumWidth(560)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(10)
-        layout.addWidget(label("Join two tables", "heading"))
-        layout.addWidget(label("For this query only: the database is not changed. To save a link as a foreign "
-                               "key, draw it on the diagram.", "note", wrap=True))
+        layout.addWidget(label(tr("query.join.heading"), "heading"))
+        layout.addWidget(label(tr("query.join.note"), "note", wrap=True))
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
         self.left_table, self.left_field = QComboBox(), QComboBox()
         self.right_table, self.right_field = QComboBox(), QComboBox()
-        grid.addWidget(label("Rows of", "caption"), 0, 0)
+        grid.addWidget(label(tr("query.join.rows_of"), "caption"), 0, 0)
         grid.addWidget(self.left_table, 0, 1)
         grid.addWidget(self.left_field, 0, 2)
-        grid.addWidget(label("match", "caption"), 1, 0)
+        grid.addWidget(label(tr("query.join.match"), "caption"), 1, 0)
         grid.addWidget(self.right_table, 1, 1)
         grid.addWidget(self.right_field, 1, 2)
         grid.setColumnStretch(1, 1)
@@ -91,21 +93,21 @@ class JoinDialog(QDialog):
 
         self.kind = QComboBox()
         for key, meaning in JOIN_KINDS.items():
-            self.kind.addItem(f"Keep {meaning}", key)
+            self.kind.addItem(tr("query.join.keep", rows=meaning), key)
         layout.addWidget(self.kind)
 
         self.preview = label("", "preview", wrap=True)
         layout.addWidget(self.preview)
         self.status = label("", wrap=True)
-        self.status.setStyleSheet(f"QLabel {{ color: {ERROR_COLOR}; font-size: 12px; background: transparent; }}")
+        self.status.setStyleSheet(qss(f"QLabel {{ color: {ERROR_COLOR}; font-size: 12px; background: transparent; }}"))
         layout.addWidget(self.status)
 
         buttons = QHBoxLayout()
         if existing is not None:
-            buttons.addWidget(button("Remove join", "danger", self._remove))
+            buttons.addWidget(button(tr("query.join.remove"), "danger", self._remove))
         buttons.addStretch()
-        buttons.addWidget(button("Cancel", on_click=self.reject))
-        self.ok_btn = button("Apply" if existing else "Join", "primary", self._apply)
+        buttons.addWidget(button(tr("common.cancel"), on_click=self.reject))
+        self.ok_btn = button(tr("query.dialog.apply" if existing else "query.join.join"), "primary", self._apply)
         self.ok_btn.setDefault(True)
         buttons.addWidget(self.ok_btn)
         layout.addLayout(buttons)
@@ -168,12 +170,12 @@ class JoinDialog(QDialog):
 
     def _problem(self, join):
         if not join.right_table or not join.left_column or not join.right_column:
-            return "There is no other table on the diagram to join."
+            return tr("query.join.no_other_table")
         left_type, right_type = self._type(join.left_table, join.left_column), self._type(join.right_table,
                                                                                          join.right_column)
         if not same_family(left_type, right_type):
-            return (f"{join.left_table}.{join.left_column} holds {left_type} values and "
-                    f"{join.right_table}.{join.right_column} holds {right_type}: the database cannot compare them.")
+            return tr("query.join.cannot_compare", left=f"{join.left_table}.{join.left_column}", left_type=left_type,
+                      right=f"{join.right_table}.{join.right_column}", right_type=right_type)
         return None
 
     def _update(self):

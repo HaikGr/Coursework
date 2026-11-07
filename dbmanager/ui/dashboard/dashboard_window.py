@@ -3,10 +3,13 @@ from PyQt6.QtWidgets import QHBoxLayout, QMainWindow, QMessageBox, QStackedWidge
 
 from dbmanager.api import ApiError, only_this_computer
 from dbmanager.db import DatabaseClient, DatabaseError
+from dbmanager.i18n import tr, trn
 from dbmanager.model.sharing import pending_count, shares_by_connection
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.icons import app_icon
+from dbmanager.ui.common.live import bind
 from dbmanager.ui.common.message_box import confirm, show_styled_message
+from dbmanager.ui.common.theme import style
 from dbmanager.ui.common.transitions import WindowTransition
 from dbmanager.ui.dashboard.side_bar import SideBar
 from dbmanager.ui.dashboard.tool_bar import Toolbar
@@ -29,7 +32,7 @@ class DashboardWindow(QMainWindow):
 
     def __init__(self, api, parent_window=None, geometry=None, db=None):
         super().__init__()
-        self.setWindowTitle("SQL Query Builder - Dashboard")
+        bind(self.setWindowTitle, "dashboard.window.title")
         self.setWindowIcon(app_icon())
         self.parent_window = parent_window
         self.api = api
@@ -39,7 +42,7 @@ class DashboardWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
-        self.setStyleSheet("QWidget { background-color: #f5f6f7; }")
+        style(self, "QWidget { background-color: @window; }")
         self.setMinimumSize(1000, 620)  # fits a 1366x768 laptop, and 1920x1080 at 150% scaling
 
         main_widget = QWidget()
@@ -125,7 +128,8 @@ class DashboardWindow(QMainWindow):
             with busy_cursor():
                 link = self.api.premium_status()
         except ApiError as error:
-            show_styled_message(self, "Premium", f"Could not check your account:\n{error}", QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("dashboard.window.premium_title"),
+                                tr("dashboard.window.premium_check_failed", error=error), QMessageBox.Icon.Warning)
             return False, None
         self.top_bar.set_premium(link is not None)
         return True, link
@@ -152,20 +156,15 @@ class DashboardWindow(QMainWindow):
         """Sharing is premium: an account that is not gets the chance to upgrade first"""
         if only_this_computer(connection["host"]):
             # A guest's app connects to the same host name - on their computer, localhost is theirs
-            show_styled_message(self, "Share Database",
-                                f"'{connection['dbName']}' is saved with the host '{connection['host']}', which "
-                                "only means this computer. Other people reach it by its network address.\n\n"
-                                "Edit the connection to use that address (for example 192.168.1.20), and make sure "
-                                "the database accepts connections from your network, then share it.",
+            show_styled_message(self, tr("dashboard.window.share_title"),
+                                tr("dashboard.window.local_host", name=connection["dbName"], host=connection["host"]),
                                 QMessageBox.Icon.Warning)
             return
         known, link = self._premium_status()
         if not known:
             return
         if link is None:
-            if not confirm(self, "Share Database",
-                           "Sharing a database is a premium feature.\n"
-                           "Verify an email address now to upgrade?"):
+            if not confirm(self, tr("dashboard.window.share_title"), tr("dashboard.window.premium_needed")):
                 return
             dialog = PremiumDialog(self, self.api, email=self._account_email())
             dialog.exec()
@@ -186,11 +185,10 @@ class DashboardWindow(QMainWindow):
         left = self._drop_guest_logins(shared)
         for connection in owned:
             self.db.forget(connection["id"])
-        text = f"The account '{self.username}' was deleted."
+        text = tr("dashboard.window.account_deleted", username=self.username)
         if left:
-            text += ("\n\nThe logins made for your guests could not be removed from: " + ", ".join(left) +
-                     ". Drop the users called dbm_u… there yourself.")
-        show_styled_message(self, "Account Deleted", text)
+            text += "\n\n" + tr("dashboard.window.guest_logins_left", databases=", ".join(left))
+        show_styled_message(self, tr("dashboard.window.account_deleted_title"), text)
         if self.parent_window:
             self.parent_window.forget(self.username)
         self._leave()  # the session ended with the account: this only goes back to signing in
@@ -232,17 +230,17 @@ class DashboardWindow(QMainWindow):
         except ApiError:
             pass  # the token is dropped locally either way
 
-    def _may_leave(self, action):
-        """True when nothing waits for Run Query, or the user agrees to lose it"""
+    def _may_leave(self, title, question):
+        """True when nothing waits for Run Query, or the user agrees to lose it (title and question: the keys of
+        what leaving is called, and of the question whether to leave anyway)"""
         count = self.sidebar_widget.unsaved_changes()
         if not count:
             return True
-        return confirm(self, action, f"{count} change{'s are' if count != 1 else ' is'} not saved to the database "
-                                     "yet - only Run Query saves them.\n\n"
-                                     f"{action} anyway and lose {'them' if count != 1 else 'it'}?")
+        unsaved = trn("dashboard.window.unsaved", count, run_query=tr("common.action.run_query"))
+        return confirm(self, tr(title), f"{unsaved}\n\n{trn(question, count)}")
 
     def log_out(self):
-        if self._may_leave("Log Out"):
+        if self._may_leave("dashboard.window.log_out_title", "dashboard.window.log_out_question"):
             self._leave()
 
     def _leave(self):
@@ -255,7 +253,7 @@ class DashboardWindow(QMainWindow):
     def closeEvent(self, event):
         # Closing the window ends the app: revoke the token instead of leaving it valid until it expires
         if self.api.signed_in:
-            if not self._may_leave("Quit"):
+            if not self._may_leave("dashboard.window.quit_title", "dashboard.window.quit_question"):
                 event.ignore()
                 return
             self._end_session()

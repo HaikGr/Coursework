@@ -1,0 +1,27 @@
+{
+  "no_token": "The server did not return a session token.",
+  "bad_address": "'{address}' is not a valid server address - it must start with http:// or https:// (check DB_MANAGER_API_URL).",
+  "unreachable": "Cannot reach the server at {address}.\nIs the backend running? ({reason})",
+  "timeout": "The server took too long to answer.",
+  "connection_lost": "The connection to the server was lost ({reason}).",
+  "not_json": "The server sent an answer that is not JSON.",
+  "http_error": "The server answered with an error (HTTP {status}).",
+  "session_expired": "Your session has expired. Please sign in again.",
+  "fields": {
+    "username": "username",
+    "email": "email",
+    "password": "password",
+    "newPassword": "newPassword",
+    "code": "code",
+    "host": "host",
+    "port": "port",
+    "dbName": "dbName",
+    "dbUsername": "dbUsername",
+    "dbPassword": "dbPassword",
+    "dbType": "dbType",
+    "connectedEmail": "connectedEmail",
+    "toUsername": "toUsername",
+    "action": "action",
+    "detail": "detail"
+  }
+}

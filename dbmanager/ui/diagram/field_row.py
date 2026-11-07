@@ -1,21 +1,25 @@
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen, QPolygonF
+from PyQt6.QtGui import QPainter, QPen, QPolygonF
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
+from dbmanager.i18n import tr
 from dbmanager.sql.generator import base_type
 from dbmanager.ui.common.elided_label import ElidedLabel
+from dbmanager.ui.common.live import bind
+from dbmanager.ui.common.theme import color, style
 
-# Every state keeps the line between rows; the card does not style its rows itself, so a row looks
-# the same before and after the mouse first passes over it.
-ROW_SEPARATOR = "FieldRow { border-bottom: 1px solid #4A5568; }\n"
+# theme.qss templates. Every state keeps the line between rows; the card does not style its rows itself, so a
+# row looks the same before and after the mouse first passes over it.
+ROW_SEPARATOR = "FieldRow { border-bottom: 1px solid @border; }\n"
 _ROW_STATES = {
-    "selected": "FieldRow { background-color: rgba(34, 197, 94, 0.16); border-left: 3px solid #22c55e; }",
-    "source": "FieldRow { background-color: rgba(59, 130, 246, 0.25); border-left: 3px solid #3b82f6; }",
-    "target": "FieldRow { background-color: rgba(245, 158, 11, 0.25); border-left: 3px solid #f59e0b; }",
-    "hover": "FieldRow { background-color: rgba(100, 116, 139, 0.4); }",
+    "selected": "FieldRow { background-color: @success_subtle; border-left: 3px solid @success; }",
+    "source": "FieldRow { background-color: @accent_subtle; border-left: 3px solid @accent; }",
+    "target": "FieldRow { background-color: @warning_subtle; border-left: 3px solid @warning; }",
+    "hover": "FieldRow { background-color: @surface_hover; }",
     "plain": "FieldRow { background-color: transparent; }",
 }
-_KEY_COLORS = {"PK": "#f6c344", "FK": "#60a5fa"}
+# A key's badge: (fill, text on the fill, outline and text while it is not linked yet)
+_KEY_COLORS = {"PK": ("@pk", "@on_pk", "@warning_text"), "FK": ("@fk", "@on_fk", "@accent_text")}
 
 
 def key_flag(field_data):
@@ -45,12 +49,12 @@ class QueryToggle(QWidget):
         circle = QRectF(2, 2, 14, 14)
         if self.checked:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor("#4ade80" if self.hovered else "#22c55e"))
+            painter.setBrush(color("success_hover" if self.hovered else "success"))
             painter.drawEllipse(circle)
-            painter.setPen(QPen(QColor("white"), 2, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+            painter.setPen(QPen(color("on_success"), 2, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
             painter.drawPolyline(QPolygonF([QPointF(5.5, 9.2), QPointF(8, 11.6), QPointF(12.6, 6.6)]))
         else:
-            painter.setPen(QPen(QColor("#E2E8F0" if self.hovered else "#8A95A5"), 1.5))
+            painter.setPen(QPen(color("text" if self.hovered else "text_muted"), 1.5))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(circle)
             if self.hovered:
@@ -88,7 +92,7 @@ class FilterMark(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#fbbf24"))
+        painter.setBrush(color("warning"))
         painter.drawPolygon(QPolygonF([QPointF(1.5, 2.5), QPointF(12.5, 2.5), QPointF(8.2, 7.5),
                                        QPointF(8.2, 12), QPointF(5.8, 10.8), QPointF(5.8, 7.5)]))
         painter.end()
@@ -138,8 +142,7 @@ class FieldRow(QFrame):
         layout.addWidget(self.label, stretch=1)
 
         self.type_label = QLabel(base_type(type_name))
-        self.type_label.setStyleSheet("QLabel { color: #A0AEC0; font-size: 10px; background: transparent; "
-                                      "border: none; }")
+        style(self.type_label, "QLabel { color: @text_muted; font-size: 10px; background: transparent; border: none; }")
         layout.addWidget(self.type_label)
 
         self.filter_mark = FilterMark()
@@ -151,9 +154,8 @@ class FieldRow(QFrame):
         layout.addWidget(self.toggle)
 
         about = f"{table_card.table_name}.{field_name}" + (f"  ({type_name})" if type_name else "")
-        self.setToolTip(f"{about}\nDrag onto a field of another table to link them (or click one, then the other)."
-                        "\nRight-click: query, links, filters")
-        self.toggle.setToolTip(f"Add {field_name} to the query")
+        bind(self.setToolTip, "diagram.field_row.tip", field=about)
+        bind(self.toggle.setToolTip, "diagram.field_row.add_to_query", field=field_name)
 
         self._update_style()
         self._update_badge()
@@ -177,24 +179,25 @@ class FieldRow(QFrame):
 
     def _update_style(self):
         state = self._state()
-        self.setStyleSheet(ROW_SEPARATOR + _ROW_STATES[state])
+        style(self, ROW_SEPARATOR + _ROW_STATES[state])
         bright = state != "plain" or self.is_selected_for_query
-        self.label.setStyleSheet(f"QLabel {{ color: {'#FFFFFF' if bright else '#E0E0E0'}; font-size: 12px; "
-                                 f"font-weight: {600 if self.is_selected_for_query else 400}; "
-                                 "background: transparent; border: none; }")
+        style(self.label, f"QLabel {{ color: {'@text' if bright else '@text_secondary'}; font-size: 12px; "
+                          f"font-weight: {600 if self.is_selected_for_query else 400}; "
+                          "background: transparent; border: none; }")
 
     def _update_badge(self):
         """A key's badge is filled once a link is drawn to it, outlined until then"""
         if self.key_badge is None:
             return
-        color = _KEY_COLORS[key_flag(self.field_data)]
+        fill, on_fill, outline = _KEY_COLORS[key_flag(self.field_data)]
         if self.connection_count > 0:
-            style = f"background-color: {color}; color: #1A202C; border: 1px solid {color};"
-            self.key_badge.setToolTip("A key, linked to another table")
+            look = f"background-color: {fill}; color: {on_fill}; border: 1px solid {fill};"
+            bind(self.key_badge.setToolTip, "diagram.field_row.linked_key")
         else:
-            style = f"background-color: transparent; color: {color}; border: 1px solid {color};"
-            self.key_badge.setToolTip("Primary key" if key_flag(self.field_data) == "PK" else "Foreign key")
-        self.key_badge.setStyleSheet(f"QLabel {{ {style} border-radius: 3px; font-size: 8px; font-weight: 700; }}")
+            look = f"background-color: transparent; color: {outline}; border: 1px solid {outline};"
+            bind(self.key_badge.setToolTip, "diagram.field_row.primary_key" if key_flag(self.field_data) == "PK"
+                 else "diagram.field_row.foreign_key")
+        style(self.key_badge, f"QLabel {{ {look} border-radius: 3px; font-size: 8px; font-weight: 700; }}")
 
     # ---------------- Links ----------------
     def set_connection_role(self, is_source=False, is_target=False):
@@ -218,15 +221,16 @@ class FieldRow(QFrame):
     def set_query_selection(self, selected):
         self.is_selected_for_query = selected
         self.toggle.set_checked(selected)
-        self.toggle.setToolTip(f"{'Take' if selected else 'Add'} {self.field_data[0]} "
-                               f"{'out of' if selected else 'to'} the query")
+        bind(self.toggle.setToolTip, "diagram.field_row.take_out_of_query" if selected
+             else "diagram.field_row.add_to_query", field=self.field_data[0])
         self._update_style()
 
     def set_filtered(self, descriptions):
         """descriptions: the filters on this field, in words ([] when there are none)"""
         self.is_filtered = bool(descriptions)
         self.filter_mark.setVisible(self.is_filtered)
-        self.filter_mark.setToolTip("Filtered: " + "; ".join(descriptions) if descriptions else "")
+        bind(self.filter_mark.setToolTip,
+             lambda: tr("diagram.field_row.filtered", filters="; ".join(descriptions)) if descriptions else "")
 
     # ---------------- Mouse ----------------
     def mousePressEvent(self, event):

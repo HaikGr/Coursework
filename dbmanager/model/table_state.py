@@ -26,6 +26,7 @@ commits each CREATE/ALTER/DROP by itself, and a failure after one leaves the dat
 
 from datetime import date
 
+from dbmanager.i18n import join_list, tr
 from dbmanager.sql import generator as sqlgen
 
 NULL_TEXT = "NULL"
@@ -71,12 +72,11 @@ def from_schema(table, db_type):
 
 
 def _rows_text(numbers):
-    """[1, 3] -> 'rows 1 and 3'; long lists are cut short"""
+    """[1, 3] -> '1 and 3'; long lists are cut short"""
     shown = [str(number) for number in numbers[:5]]
     if len(numbers) > 5:
-        shown.append(f"{len(numbers) - 5} more")
-    text = shown[0] if len(shown) == 1 else ", ".join(shown[:-1]) + " and " + shown[-1]
-    return f"row{'s' if len(numbers) > 1 else ''} {text}"
+        shown.append(tr("model.table_state.more_rows", number=len(numbers) - 5))
+    return join_list(shown)
 
 
 class TableState:
@@ -331,7 +331,7 @@ class TableState:
             return []
         found = []
         for index, (column, meta) in enumerate(zip(self.columns, self.column_meta)):
-            label = f"'{self.name}.{column[0]}'"
+            field = f"{self.name}.{column[0]}"
             # a new required column: without a default it waits for its values; with one, a row cleared again
             # would be set to NULL
             added = meta["origin"] is None and column[2] == "Not Null" and not is_primary_key(column) \
@@ -339,26 +339,24 @@ class TableState:
             tightened = self._tightened(column, meta) and meta["fill"] is None
             changes_null = self._loosened(column, meta) or self._tightened(column, meta)
             if changes_null and self.db_type != "POSTGRESQL" and not meta["details"].get("sqlType"):
-                found.append(f"{label}: its exact type is not known, so its NULL setting cannot be changed here. "
-                             "Read the database again (⟳) and try once more.")
+                found.append(tr("model.table_state.type_unknown", field=field))
                 continue
             if changes_null and (meta["details"].get("mysql") or {}).get("generated"):
-                found.append(f"{label} is computed by the database: its NULL setting cannot be changed.")
+                found.append(tr("model.table_state.computed", field=field))
                 continue
             if not (added or tightened):
                 continue
-            remedy = ("give the field a default value (⋮ next to it → Default value…)" if added
-                      else "choose a value for them (⋮ next to the field → Require a value…)")
+            remedy = tr("model.table_state.remedy_default" if added else "model.table_state.remedy_fill")
             if self.rows_truncated or not self.rows_loaded:
                 if added and sqlgen.column_default(column) is not None:
                     continue  # the default reaches the rows that are not shown
-                found.append(f"{label} requires a value (NOT NULL), and '{self.name}' may have more rows than "
-                             f"are shown here. To be sure each gets one, {remedy}.")
+                found.append(tr("model.table_state.rows_not_shown", field=field, table=self.name, remedy=remedy))
                 continue
             missing = self.rows_without_value(index)
             if missing:
-                found.append(f"{label} requires a value (NOT NULL), and {_rows_text(missing)} "
-                             f"{'have' if len(missing) > 1 else 'has'} none. Type a value in each, or {remedy}.")
+                # "row 2" or "rows 1 and 3": a list of row numbers rather than a count, so no plural form
+                key = "rows_without_value" if len(missing) > 1 else "row_without_value"
+                found.append(tr(f"model.table_state.{key}", field=field, rows=_rows_text(missing), remedy=remedy))
         return found
 
     def data_statements(self):

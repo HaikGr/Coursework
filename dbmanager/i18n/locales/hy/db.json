@@ -1,0 +1,28 @@
+{
+  "drivers": {
+    "not_supported": "{db_type} տեսակի բազաները կարելի է գրանցել, բայց այս հավելվածը չի կարող դրանք բացել։ Աջակցվում են՝ {types}։",
+    "not_installed": "{db_type} բազաների դրայվերը տեղադրված չէ՝ pip install \"{package}\"",
+    "login_refused": "սերվերը մերժեց մուտքը (սխալ օգտանուն կամ գաղտնաբառ, կամ այս բազայի հասանելիություն չկա)",
+    "connect_failed": "Չհաջողվեց միանալ {target} բազային՝ {reason}",
+    "version_unknown": "{db_type} (տարբերակը պարզել չհաջողվեց՝ {reason})",
+    "connected": "Միացումը հաջողվեց {ms} մվ-ում՝ {server}"
+  },
+  "client": {
+    "tables_unreadable": "Չհաջողվեց կարդալ «{database}» բազայի աղյուսակները՝ {reason}",
+    "nothing_to_run": "Կատարելու հրաման չկա։",
+    "password_unknown": "«{database}» բազայի գաղտնաբառը հայտնի չէ։ Մուտքագրեք այն՝ բազան բացելու համար։",
+    "guest_login_refused": "«{database}» բազան մերժեց ձեր մուտքանունը։ Սեփականատիրոջ հավելվածը այն նորից կկարգավորի, երբ սեփականատերը բացի բազան։",
+    "guest_logins_failed": "Չհաջողվեց կարգավորել մուտքանուններն այն մարդկանց համար, ում հետ կիսվել եք «{database}» բազայով՝ {reason}\nՁեր բազայի օգտատերը պետք է իրավունք ունենա ստեղծելու օգտատերեր և տրամադրելու թույլտվություններ (օրինակ՝ PostgreSQL-ի CREATEROLE)։"
+  },
+  "execute": {
+    "rejected": "Բազան մերժեց հրամանը՝ {reason}",
+    "rejected_in_script": "Բազան մերժեց հրաման {number}-ը {total}-ից ({kind}) — ոչինչ չպահպանվեց՝ {reason}"
+  },
+  "guests": {
+    "not_supported": "{db_type} բազաներով կիսվելը չի աջակցվում"
+  },
+  "generator": {
+    "not_true_or_false": "ընդունում է միայն true կամ false ({type_name}; նաև 1/0, yes/no), ոչ թե «{value}»",
+    "not_a_number": "ընդունում է միայն թվեր ({type_name}), ոչ թե «{value}»"
+  }
+}

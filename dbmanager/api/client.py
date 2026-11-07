@@ -10,20 +10,30 @@ import urllib.error
 import urllib.request
 from decimal import Decimal
 
+from dbmanager import i18n
 from dbmanager.config import API_TIMEOUT_SECONDS, API_URL, LOGOUT_TIMEOUT_SECONDS
+from dbmanager.i18n import tr
 
 
 class ApiError(Exception):
-    """A failed API call. str(error) is a message ready to show to the user.
-    status is the HTTP status, or 0 when the server could not be reached at all."""
+    """A failed API call. str(error) is a message ready to show to the user, in the language of the request:
+    the server translates its own. status is the HTTP status, or 0 when the server could not be reached at
+    all; code is the server's stable name for the error ("error.auth.bad_credentials"), or None."""
 
-    def __init__(self, status, message, field_errors=None):
+    def __init__(self, status, message, field_errors=None, code=None):
         self.status = status
+        self.code = code
         self.field_errors = field_errors if isinstance(field_errors, dict) else {}
         if self.field_errors:
-            details = "\n".join(f"• {field}: {error}" for field, error in self.field_errors.items())
+            details = "\n".join(f"• {_field_label(field)}: {error}" for field, error in self.field_errors.items())
             message = f"{message}\n{details}"
         super().__init__(message)
+
+
+def _field_label(field):
+    """A request field as the user knows it ("password" -> "Пароль"); one this app does not name stays as is."""
+    key = f"api.fields.{field}"
+    return tr(key) if key in i18n.catalogue(i18n.DEFAULT_LANGUAGE) else field
 
 
 class ApiClient:
@@ -173,7 +183,7 @@ class ApiClient:
     # ---------------- Plumbing ----------------
     def _store_session(self, data):
         if not isinstance(data, dict) or not data.get("token"):
-            raise ApiError(0, "The server did not return a session token.")
+            raise ApiError(0, tr("api.no_token"))
         self.token = data["token"]
         self.user_id = data.get("userId")
         self.username = data.get("username")
@@ -196,11 +206,12 @@ class ApiClient:
 
     def _request(self, method, path, body=None, timeout=None):
         if not self.base_url.startswith(("http://", "https://")):
-            raise ApiError(0, f"'{self.base_url}' is not a valid server address - it must start with "
-                              "http:// or https:// (check DB_MANAGER_API_URL).")
+            raise ApiError(0, tr("api.bad_address", address=self.base_url))
         data = json.dumps(body, default=str).encode("utf-8") if body is not None else None
         request = urllib.request.Request(self.base_url + path, data=data, method=method)
         request.add_header("Accept", "application/json")
+        # The server answers its messages, errors included, in the language the app shows
+        request.add_header("Accept-Language", i18n.language().tag)
         if data is not None:
             request.add_header("Content-Type", "application/json")
         if self.token:
@@ -213,13 +224,12 @@ class ApiClient:
         except urllib.error.HTTPError as error:
             raise self._to_api_error(error, sent_token=self.token is not None) from None
         except urllib.error.URLError as error:
-            raise ApiError(0, f"Cannot reach the server at {self.base_url}.\n"
-                              f"Is the backend running? ({error.reason})") from None
+            raise ApiError(0, tr("api.unreachable", address=self.base_url, reason=error.reason)) from None
         except TimeoutError:
-            raise ApiError(0, "The server took too long to answer.") from None
+            raise ApiError(0, tr("api.timeout")) from None
         except (OSError, http.client.HTTPException) as error:
             # e.g. the connection was reset because the server restarted mid-request
-            raise ApiError(0, f"The connection to the server was lost ({error}).") from None
+            raise ApiError(0, tr("api.connection_lost", reason=error)) from None
 
         if not raw:
             return None
@@ -227,7 +237,7 @@ class ApiClient:
             # Decimal keeps money/numeric columns exact instead of turning them into floats
             return json.loads(raw, parse_float=Decimal)
         except ValueError:
-            raise ApiError(0, "The server sent an answer that is not JSON.") from None
+            raise ApiError(0, tr("api.not_json")) from None
 
     @staticmethod
     def _to_api_error(error, sent_token):
@@ -239,7 +249,7 @@ class ApiClient:
             error.close()
         if not isinstance(payload, dict):
             payload = {}
-        message = payload.get("message") or error.reason or f"HTTP {error.code}"
+        message = payload.get("message") or tr("api.http_error", status=error.code)
         if error.code == 401 and sent_token:
-            message = "Your session has expired. Please sign in again."
-        return ApiError(error.code, message, payload.get("fieldErrors"))
+            message = tr("api.session_expired")
+        return ApiError(error.code, message, payload.get("fieldErrors"), payload.get("code"))

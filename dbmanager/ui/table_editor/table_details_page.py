@@ -6,19 +6,23 @@ clicks and typing into calls on it.
 """
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
+from PyQt6.QtGui import QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QDialog, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QMenu, QMessageBox, QPushButton,
     QScrollArea, QSizePolicy, QSplitter, QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget
 )
 
 from dbmanager.db.values import MAX_TEXT_LENGTH
+from dbmanager.i18n import tr, trn
 from dbmanager.model.table_state import NULL_TEXT, TableState, cell_text, is_auto_increment, is_primary_key
 from dbmanager.sql import generator as sqlgen
 from dbmanager.ui.common.data_grid import SCROLLBAR_STYLE, fit_columns, prepare_grid, set_cell_text
 from dbmanager.ui.common.elided_label import ElidedLabel
+from dbmanager.ui.common.live import bind
 from dbmanager.ui.common.message_box import confirm, show_styled_message
+from dbmanager.ui.common.preferences import changes
 from dbmanager.ui.common.style import shortcut_text
+from dbmanager.ui.common.theme import color, qss, style
 from dbmanager.ui.common.value_panel import ValuePanel
 from dbmanager.ui.dialogs.field_dialog import InputFieldsWindow
 from dbmanager.ui.dialogs.not_null_dialog import ask_fill_value
@@ -35,55 +39,57 @@ NAME_MIN_WIDTH = 56
 SCHEMA_PANEL_MIN_WIDTH = 2 * 12 + 26 + NAME_MIN_WIDTH + TYPE_COLUMN_WIDTH + NULL_COLUMN_WIDTH + MORE_BUTTON_WIDTH + 3 * 6 + 10
 VALUE_PANEL_KEYS = ("Shift+Return", "Shift+Enter")
 
+# The style sheets are theme.qss templates.
 # The cell editor is a QLineEdit inside the table. It must get its colours here: otherwise it takes
-# the dashboard's light background together with the table's light text and what you type is invisible.
+# the page's background together with the table's text colour, and what you type can be invisible.
 DATA_TABLE_STYLE = """
-    QTableWidget { background-color: #2D3748; alternate-background-color: #323D4D; border: none; color: #E2E8F0; font-size: 12px; }
-    QTableWidget::item { padding: 0px 12px; border-bottom: 1px solid #3D4852; }
-    QTableWidget::item:selected { background-color: #3777f0; color: #FFFFFF; }
+    QTableWidget { background-color: @surface; alternate-background-color: @row_alt; border: none; color: @text; font-size: 12px; }
+    QTableWidget::item { padding: 0px 12px; border-bottom: 1px solid @grid_line; }
+    QTableWidget::item:selected { background-color: @selection; color: @on_selection; }
     QTableWidget QLineEdit {
-        background-color: #1A202C;
-        color: #F7FAFC;
-        border: 2px solid #3777f0;
+        background-color: @sunken;
+        color: @text;
+        border: 2px solid @focus;
         border-radius: 4px;
         padding: 0px 6px;
         font-size: 12px;
-        selection-background-color: #3777f0;
-        selection-color: #FFFFFF;
+        selection-background-color: @selection;
+        selection-color: @on_selection;
     }
-    QHeaderView::section { background-color: #252D3A; color: #718096; padding: 10px 12px; border: none;
-                           border-right: 1px solid #2D3748; font-weight: 600; font-size: 11px; }
+    QHeaderView::section { background-color: @surface_alt; color: @text_muted; padding: 10px 12px; border: none;
+                           border-right: 1px solid @border; font-weight: 600; font-size: 11px; }
 """ + SCROLLBAR_STYLE
 
+# On the green band of the rows
 VALUE_BUTTON_STYLE = """
-    QPushButton { color: #FFFFFF; background: transparent; border: 1px solid rgba(255, 255, 255, 0.7);
+    QPushButton { color: @on_success; background: transparent; border: 1px solid @on_success;
                   border-radius: 4px; padding: 0px 8px; font-size: 11px; font-weight: 600; }
-    QPushButton:hover { background: rgba(255, 255, 255, 0.2); }
-    QPushButton:checked { background: #FFFFFF; color: #276749; border-color: #FFFFFF; }
+    QPushButton:hover { background: @success_hover; }
+    QPushButton:checked { background: @on_success; color: @success; border-color: @on_success; }
 """
 
 SCHEMA_MENU_STYLE = """
-    QMenu { background-color: #1f2937; border: 1px solid #374151; border-radius: 6px; padding: 4px; }
-    QMenu::item { padding: 8px 16px; color: #f3f4f6; border-radius: 4px; }
-    QMenu::item:selected { background-color: #374151; }
-    QMenu::separator { height: 1px; background: #374151; margin: 4px 6px; }
+    QMenu { background-color: @surface; border: 1px solid @border_strong; border-radius: 6px; padding: 4px; }
+    QMenu::item { padding: 8px 16px; color: @text; border-radius: 4px; }
+    QMenu::item:selected { background-color: @surface_raised; }
+    QMenu::separator { height: 1px; background: @border; margin: 4px 6px; }
 """
 
 DROP_BUTTON_STYLE = """
-    QPushButton { background-color: transparent; color: #fca5a5; border: 1px solid #7f1d1d; border-radius: 5px;
+    QPushButton { background-color: transparent; color: @danger_text; border: 1px solid @danger; border-radius: 5px;
                   font-size: 11px; font-weight: 600; padding: 0 10px; }
-    QPushButton:hover { background-color: #7f1d1d; color: #fee2e2; }
+    QPushButton:hover { background-color: @danger_subtle; color: @danger_text; }
 """
 KEEP_BUTTON_STYLE = """
-    QPushButton { background-color: #7f1d1d; color: #fee2e2; border: none; border-radius: 5px;
+    QPushButton { background-color: @danger_subtle; color: @danger_text; border: none; border-radius: 5px;
                   font-size: 11px; font-weight: 600; padding: 0 10px; }
-    QPushButton:hover { background-color: #991b1b; }
+    QPushButton:hover { background-color: @danger; color: @on_danger; }
 """
 
 BOTTOM_BUTTON_STYLE = """
-    QPushButton { background-color: #252D3A; color: #A0AEC0; border: none; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; font-size: 12px; }
-    QPushButton:hover { background-color: #2D3748; color: #E2E8F0; }
-    QPushButton:disabled { color: #4A5568; }
+    QPushButton { background-color: @surface_alt; color: @text_secondary; border: none; border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; font-size: 12px; }
+    QPushButton:hover { background-color: @surface_hover; color: @text; }
+    QPushButton:disabled { color: @text_disabled; }
 """
 
 
@@ -133,14 +139,14 @@ class TableDetailsPage(QWidget):
         self._panel_problem = None   # why the text typed there was not taken
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setStyleSheet("QWidget { background-color: #f5f6f7; }")
+        style(self, "QWidget { background-color: @window; }")
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         content_widget = QWidget()
-        content_widget.setStyleSheet("QWidget { background-color: #f5f6f7; }")
+        style(content_widget, "QWidget { background-color: @window; }")
         content_layout = QHBoxLayout(content_widget)
         content_layout.setContentsMargins(20, 20, 20, 20)
         content_layout.setSpacing(20)
@@ -156,10 +162,11 @@ class TableDetailsPage(QWidget):
             self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
             for button in (self.add_field_btn, self.add_row_btn):
                 button.setEnabled(False)
-                button.setToolTip("Views are read-only here")
+                bind(button.setToolTip, "table_editor.page.view_read_only_tip")
         elif structure_locked:
             self.add_field_btn.setEnabled(False)
-            self.add_field_btn.setToolTip("Only the owner changes the structure of a shared database")
+            bind(self.add_field_btn.setToolTip, "table_editor.page.owner_only_tip")
+        changes.changed.connect(self._follow_preferences)
 
     @property
     def table_name(self):
@@ -170,13 +177,13 @@ class TableDetailsPage(QWidget):
     def _create_panel_shadow(widget):
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(15)
-        shadow.setColor(QColor(0, 0, 0, 30))
+        bind(shadow.setColor, lambda: color("shadow", alpha=30))
         shadow.setOffset(0, 2)
         widget.setGraphicsEffect(shadow)
 
     def _build_schema_panel(self):
         panel = QFrame()
-        panel.setStyleSheet("QFrame { background-color: #2D3748; border-radius: 10px; }")
+        style(panel, "QFrame { background-color: @surface; border-radius: 10px; }")
         panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         panel.setMinimumWidth(SCHEMA_PANEL_MIN_WIDTH)
         self._create_panel_shadow(panel)
@@ -187,24 +194,25 @@ class TableDetailsPage(QWidget):
 
         # Header
         header = QFrame()
-        header.setStyleSheet("QFrame { background-color: #2D3748; border-top-left-radius: 10px; border-top-right-radius: 10px; }")
+        style(header, "QFrame { background-color: @surface; border-top-left-radius: 10px; border-top-right-radius: 10px; }")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(12, 10, 12, 10)
 
-        back_btn = QPushButton("← Back")
+        back_btn = QPushButton()
+        bind(back_btn.setText, lambda: f"← {tr('common.back')}")
         back_btn.setFixedHeight(30)
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self.go_back)
-        back_btn.setStyleSheet("""
-            QPushButton { background-color: #4A5568; color: #E2E8F0; border: none; border-radius: 5px; font-size: 12px; padding: 0 10px; }
-            QPushButton:hover { background-color: #5A6A7D; }
+        style(back_btn, """
+            QPushButton { background-color: @surface_raised; color: @text; border: none; border-radius: 5px; font-size: 12px; padding: 0 10px; }
+            QPushButton:hover { background-color: @surface_pressed; }
         """)
 
         table_icon = QLabel("⊡" if self.state.view else "⊞")
-        table_icon.setStyleSheet("QLabel { font-size: 14px; color: #A0AEC0; background: transparent; }")
+        style(table_icon, "QLabel { font-size: 14px; color: @text_muted; background: transparent; }")
         table_label = QLabel(self.table_name)
-        table_label.setStyleSheet("QLabel { color: #FFFFFF; font-size: 14px; font-weight: 600; "
-                                  "background: transparent; }")
+        style(table_label, "QLabel { color: @text; font-size: 14px; font-weight: 600; "
+                           "background: transparent; }")
 
         header_layout.addWidget(back_btn)
         header_layout.addSpacing(10)
@@ -213,8 +221,9 @@ class TableDetailsPage(QWidget):
         header_layout.addWidget(table_label)
         header_layout.addStretch()
         if self.state.view:
-            view_badge = QLabel("view · read-only")
-            view_badge.setStyleSheet("QLabel { color: #A0AEC0; font-size: 11px; background: transparent; }")
+            view_badge = QLabel()
+            bind(view_badge.setText, "table_editor.page.view_badge")
+            style(view_badge, "QLabel { color: @text_muted; font-size: 11px; background: transparent; }")
             header_layout.addWidget(view_badge)
         self.drop_btn = QPushButton()
         self.drop_btn.setFixedHeight(28)
@@ -228,14 +237,15 @@ class TableDetailsPage(QWidget):
         # Schema header
         schema_header = QFrame()
         schema_header.setFixedHeight(32)
-        schema_header.setStyleSheet("QFrame { background-color: #fbc840; }")
+        style(schema_header, "QFrame { background-color: @highlight; }")
         schema_header_layout = QHBoxLayout(schema_header)
         schema_header_layout.setContentsMargins(12, 0, 12, 0)
         schema_icon = QLabel("⊞")
-        schema_icon.setStyleSheet("QLabel { font-size: 12px; color: #744210; background: transparent; }")
-        schema_title = QLabel("Schema")
-        schema_title.setStyleSheet("QLabel { color: #744210; font-size: 12px; font-weight: 600; "
-                                   "background: transparent; }")
+        style(schema_icon, "QLabel { font-size: 12px; color: @on_highlight; background: transparent; }")
+        schema_title = QLabel()
+        bind(schema_title.setText, "table_editor.schema.title")
+        style(schema_title, "QLabel { color: @on_highlight; font-size: 12px; font-weight: 600; "
+                            "background: transparent; }")
         schema_header_layout.addWidget(schema_icon)
         schema_header_layout.addSpacing(4)
         schema_header_layout.addWidget(schema_title)
@@ -245,18 +255,21 @@ class TableDetailsPage(QWidget):
         # Column headers
         col_header = QFrame()
         col_header.setFixedHeight(36)
-        col_header.setStyleSheet("QFrame { background-color: #252D3A; }")
+        style(col_header, "QFrame { background-color: @surface_alt; }")
         col_header_layout = QHBoxLayout(col_header)
         col_header_layout.setContentsMargins(12, 0, 12, 0)
         col_header_layout.setSpacing(6)  # as in the rows below, so the headings stand over their columns
-        header_style = "QLabel { color: #718096; font-size: 11px; font-weight: 600; background: transparent; }"
-        col_label = QLabel("Column")
-        col_label.setStyleSheet(header_style)
-        type_label = QLabel("Type")
-        type_label.setStyleSheet(header_style)
+        header_style = "QLabel { color: @text_muted; font-size: 11px; font-weight: 600; background: transparent; }"
+        col_label = QLabel()
+        bind(col_label.setText, "table_editor.schema.column")
+        style(col_label, header_style)
+        type_label = QLabel()
+        bind(type_label.setText, "table_editor.schema.type")
+        style(type_label, header_style)
         type_label.setFixedWidth(TYPE_COLUMN_WIDTH)
-        null_label = QLabel("Null")
-        null_label.setStyleSheet(header_style)
+        null_label = QLabel()
+        bind(null_label.setText, "table_editor.schema.null")
+        style(null_label, header_style)
         null_label.setFixedWidth(NULL_COLUMN_WIDTH)
         null_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         col_header_layout.addWidget(col_label, 1)
@@ -270,14 +283,14 @@ class TableDetailsPage(QWidget):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # names are cut instead
-        scroll_area.setStyleSheet("""
-            QScrollArea { background-color: #2D3748; border: none; }
-            QWidget { background-color: #2D3748; }
-            QScrollBar:vertical { background: #2D3748; width: 6px; }
-            QScrollBar::handle:vertical { background: #4A5568; border-radius: 3px; }
+        style(scroll_area, """
+            QScrollArea { background-color: @surface; border: none; }
+            QWidget { background-color: @surface; }
+            QScrollBar:vertical { background: @surface; width: 6px; }
+            QScrollBar::handle:vertical { background: @scrollbar; border-radius: 3px; }
         """)
         self.schema_container = QWidget()
-        self.schema_container.setStyleSheet("QWidget { background-color: #2D3748; }")
+        style(self.schema_container, "QWidget { background-color: @surface; }")
         self.schema_layout = QVBoxLayout(self.schema_container)
         self.schema_layout.setContentsMargins(0, 0, 0, 0)
         self.schema_layout.setSpacing(0)
@@ -285,11 +298,12 @@ class TableDetailsPage(QWidget):
         scroll_area.setWidget(self.schema_container)
         layout.addWidget(scroll_area)
 
-        self.add_field_btn = QPushButton("+ Add Field")
+        self.add_field_btn = QPushButton()
+        bind(self.add_field_btn.setText, "table_editor.schema.add_field")
         self.add_field_btn.setFixedHeight(38)
         self.add_field_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.add_field_btn.clicked.connect(self.add_field)
-        self.add_field_btn.setStyleSheet(BOTTOM_BUTTON_STYLE)
+        style(self.add_field_btn, BOTTOM_BUTTON_STYLE)
         layout.addWidget(self.add_field_btn)
         return panel
 
@@ -299,19 +313,19 @@ class TableDetailsPage(QWidget):
         row_frame.setFixedHeight(42)
         row_frame.setCursor(Qt.CursorShape.PointingHandCursor)
         # Named: a QLabel is a QFrame too, and a plain QFrame rule drew the row's bottom line under each name
-        row_frame.setStyleSheet("""
-            QFrame#schemaRow { background-color: #2D3748; border-bottom: 1px solid #3D4852; }
-            QFrame#schemaRow:hover { background-color: #3D4A5C; }
+        style(row_frame, """
+            QFrame#schemaRow { background-color: @surface; border-bottom: 1px solid @grid_line; }
+            QFrame#schemaRow:hover { background-color: @surface_hover; }
         """)
         row_frame.clicked.connect(lambda f=row_frame: self._show_field_of_row(f))
         structure_editable = self.state.editable and not self.structure_locked
-        hint = "Click to show it in the rows"
+        hint = "table_editor.schema.row_tip"
         if structure_editable:
-            hint += " · ⋮ or right-click: rename, require a value or allow NULL, delete"
+            hint = "table_editor.schema.row_tip_editable"
             row_frame.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             row_frame.customContextMenuRequested.connect(
                 lambda pos, f=row_frame: self._show_schema_context_menu(f, f.mapToGlobal(pos)))
-        row_frame.setToolTip(f"{field_name} ({type_value})\n{hint}")
+        bind(row_frame.setToolTip, hint, field=field_name, type=type_value)
 
         row_layout = QHBoxLayout(row_frame)
         row_layout.setContentsMargins(12, 0, 12, 0)
@@ -327,22 +341,23 @@ class TableDetailsPage(QWidget):
             icon = QLabel("PK" if is_pk else "FK")
             icon.setFixedSize(22, 14)
             icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            color = "#f6c344" if is_pk else "#60a5fa"
-            icon.setStyleSheet(f"QLabel {{ color: {color}; border: 1px solid {color}; border-radius: 3px; "
-                               "font-size: 8px; font-weight: 700; background: transparent; }")
+            key = "pk" if is_pk else "fk"
+            style(icon, f"QLabel {{ color: @on_{key}; border: 1px solid @{key}; border-radius: 3px; "
+                        f"font-size: 8px; font-weight: 700; background: @{key}; }}")
             name_layout.addWidget(icon)
         # A long name is cut with …, whole in its tooltip
         name_label = ElidedLabel(field_name)
         name_label.setMinimumWidth(NAME_MIN_WIDTH)
         name_label.setObjectName("field_name_label")
-        name_label.setStyleSheet("QLabel { color: #E2E8F0; font-size: 12px; background: transparent; }")
+        style(name_label, "QLabel { color: @text; font-size: 12px; background: transparent; }")
         name_layout.addWidget(name_label)
 
         type_badge = QLabel()
         type_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         type_badge.setFixedHeight(22)
         type_badge.setMinimumWidth(70)
-        type_badge.setStyleSheet("QLabel { background-color: #4A5568; color: #E2E8F0; border-radius: 4px; font-size: 10px; padding: 0 8px; }")
+        style(type_badge, "QLabel { background-color: @surface_raised; color: @text; border-radius: 4px; font-size: 10px; "
+                          "padding: 0 8px; }")
         type_badge.ensurePolished()  # its own font size counts
         shown_type = type_badge.fontMetrics().elidedText(type_value, Qt.TextElideMode.ElideRight,
                                                         TYPE_COLUMN_WIDTH - 2 * 8 - 2)
@@ -365,14 +380,16 @@ class TableDetailsPage(QWidget):
         null_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if is_nullable:
             null_dot = QLabel("●")
-            null_dot.setStyleSheet("QLabel { color: #48BB78; font-size: 12px; background: transparent; }")
+            style(null_dot, "QLabel { color: @success_text; font-size: 12px; background: transparent; }")
             null_layout.addWidget(null_dot)
         checkbox_frame = QFrame()
         checkbox_frame.setFixedSize(14, 14)
         if is_nullable:
-            checkbox_frame.setStyleSheet("QFrame { background-color: rgba(72, 187, 120, 0.3); border: 2px solid #48BB78; border-radius: 3px; }")
+            style(checkbox_frame, "QFrame { background-color: @success_subtle; border: 2px solid @success_text; "
+                                  "border-radius: 3px; }")
         else:
-            checkbox_frame.setStyleSheet("QFrame { background-color: transparent; border: 2px solid #4A5568; border-radius: 3px; }")
+            style(checkbox_frame, "QFrame { background-color: transparent; border: 2px solid @border_strong; "
+                                  "border-radius: 3px; }")
         null_layout.addWidget(checkbox_frame)
 
         row_layout.addWidget(name_container, 1)
@@ -383,11 +400,11 @@ class TableDetailsPage(QWidget):
             more.setText("⋮")
             more.setFixedWidth(MORE_BUTTON_WIDTH)
             more.setCursor(Qt.CursorShape.PointingHandCursor)
-            more.setToolTip("Rename, require a value or allow NULL, delete")
-            more.setStyleSheet("""
-                QToolButton { color: #A0AEC0; background: transparent; border: none; border-radius: 4px;
+            bind(more.setToolTip, "table_editor.schema.more_tip")
+            style(more, """
+                QToolButton { color: @text_muted; background: transparent; border: none; border-radius: 4px;
                               font-size: 15px; font-weight: bold; padding: 0 4px; }
-                QToolButton:hover { color: #FFFFFF; background: #4A5568; }
+                QToolButton:hover { color: @text; background: @surface_raised; }
             """)
             more.clicked.connect(lambda _=False, f=row_frame, b=more: self._show_schema_context_menu(
                 f, b.mapToGlobal(b.rect().bottomLeft())))
@@ -398,19 +415,20 @@ class TableDetailsPage(QWidget):
         """What can be done with a field's definition: rename it, require a value or allow NULL, delete it"""
         column = self.state.columns[col_index]
         menu = QMenu(self)
-        menu.setStyleSheet(SCHEMA_MENU_STYLE)
-        menu.addAction("Rename field…").triggered.connect(lambda: self._rename_field(col_index))
+        menu.setStyleSheet(qss(SCHEMA_MENU_STYLE))
+        menu.addAction(tr("table_editor.field_menu.rename")).triggered.connect(lambda: self._rename_field(col_index))
         if self.state.column_meta[col_index]["origin"] is None and not is_auto_increment(column):
-            menu.addAction("Default value…").triggered.connect(lambda: self._set_default(col_index))
+            menu.addAction(tr("table_editor.field_menu.default_value")).triggered.connect(
+                lambda: self._set_default(col_index))
         if not is_primary_key(column) and not is_auto_increment(column):
             if column[2] == "Null":
-                menu.addAction("Require a value (NOT NULL)…").triggered.connect(
+                menu.addAction(tr("table_editor.field_menu.require_value")).triggered.connect(
                     lambda: self._require_value(col_index))
             else:
-                menu.addAction("Allow empty values (NULL)").triggered.connect(
+                menu.addAction(tr("table_editor.field_menu.allow_null")).triggered.connect(
                     lambda: self._allow_null(col_index))
         menu.addSeparator()
-        menu.addAction("Delete field…").triggered.connect(lambda: self._delete_field(col_index))
+        menu.addAction(tr("table_editor.field_menu.delete")).triggered.connect(lambda: self._delete_field(col_index))
         return menu
 
     def _show_schema_context_menu(self, row_frame, global_pos):
@@ -460,13 +478,15 @@ class TableDetailsPage(QWidget):
         """The default of a field added here (not saved yet): what rows get when no value is given"""
         column = self.state.columns[col_index]
         current = column[7] if len(column) > 7 and column[7] is not None else ""
-        value = ask_new_name(self, "Default Value", f"Default value for {column[0]} ({column[1]}) - "
-                                                   "empty for none:", current)
+        value = ask_new_name(self, tr("table_editor.default_value.title"),
+                             tr("table_editor.default_value.prompt", field=column[0], type=column[1]), current)
         if value is None:
             return
         problem = sqlgen.value_problem(value, column[1])
         if problem:
-            show_styled_message(self, "Default Value", f"{column[0]} {problem}.", QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("table_editor.default_value.title"),
+                                tr("table_editor.default_value.invalid", field=column[0], problem=problem),
+                                QMessageBox.Icon.Warning)
             return
         for row, shown in self.state.set_default(col_index, value):
             self._show_cell(row, col_index, shown)
@@ -480,21 +500,23 @@ class TableDetailsPage(QWidget):
 
     def show_pending_drop(self, pending):
         """The table is marked to be dropped at the next Run (or not): the button takes it back"""
-        kind = "view" if self.state.view else "table"
-        self.drop_btn.setText(f"Keep {kind}" if pending else f"Drop {kind}")
-        self.drop_btn.setStyleSheet(KEEP_BUTTON_STYLE if pending else DROP_BUTTON_STYLE)
-        self.drop_btn.setToolTip(f"Marked to be dropped when you click Run Query - click to keep the {kind}"
-                                 if pending else f"Drop this {kind} from the database (at the next Run Query)")
+        # table_editor.page.drop_table, keep_table, drop_view, keep_view and their _tip
+        key = f"table_editor.page.{'keep' if pending else 'drop'}_{'view' if self.state.view else 'table'}"
+        bind(self.drop_btn.setText, key)
+        style(self.drop_btn, KEEP_BUTTON_STYLE if pending else DROP_BUTTON_STYLE)
+        bind(self.drop_btn.setToolTip, lambda: tr(f"{key}_tip", run_query=tr("common.action.run_query")))
 
     def _rename_field(self, col_index):
         if col_index >= len(self.state.columns):
             return
         old_name = self.state.columns[col_index][0]
-        new_name = ask_new_name(self, "Rename Field", "Enter new field name:", old_name)
+        new_name = ask_new_name(self, tr("table_editor.rename_field.title"), tr("table_editor.rename_field.prompt"),
+                                old_name)
         if not new_name or new_name == old_name:
             return
         if self.state.has_column(new_name, ignore_index=col_index):
-            show_styled_message(self, "Rename Field", f"'{self.table_name}' already has a field named '{new_name}'.",
+            show_styled_message(self, tr("table_editor.rename_field.title"),
+                                tr("table_editor.rename_field.taken", table=self.table_name, name=new_name),
                                 QMessageBox.Icon.Warning)
             return
 
@@ -508,8 +530,8 @@ class TableDetailsPage(QWidget):
     def delete_field(self, col_index):
         """Delete a field, after asking (from its menu here, or from the diagram)"""
         if not self.state.editable or self.structure_locked:
-            show_styled_message(self, "Delete Field", "The fields of a view, or of a database shared with you, "
-                                                      "cannot be changed here.", QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("table_editor.delete_field.title"), tr("table_editor.delete_field.not_here"),
+                                QMessageBox.Icon.Warning)
             return
         self._delete_field(col_index)
 
@@ -518,16 +540,14 @@ class TableDetailsPage(QWidget):
             return
         field_name = self.state.columns[col_index][0]
         origin = self.state.column_meta[col_index]["origin"]
-        text = f"Delete the field '{field_name}'"
         if origin is None:
-            text += "? It was never saved."
+            text = tr("table_editor.delete_field.never_saved", field=field_name)
         else:
-            text += " and its values from every row? It is dropped when you click Run Query."
+            text = tr("table_editor.delete_field.saved", field=field_name, run_query=tr("common.action.run_query"))
             references = self.describe_references(origin)
             if references:
-                text += ("\n\nThese fields point at it - their foreign keys are dropped too (the fields and their "
-                         "values stay):\n  " + "\n  ".join(references))
-        if not confirm(self, "Delete Field", text):
+                text += "\n\n" + tr("table_editor.delete_field.references") + "\n  " + "\n  ".join(references)
+        if not confirm(self, tr("table_editor.delete_field.title"), text):
             return
 
         self.state.delete_column(col_index)
@@ -582,7 +602,7 @@ class TableDetailsPage(QWidget):
     # ---------------- Data panel ----------------
     def _build_data_panel(self):
         panel = QFrame()
-        panel.setStyleSheet("QFrame { background-color: #2D3748; border-radius: 10px; }")
+        style(panel, "QFrame { background-color: @surface; border-radius: 10px; }")
         panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._create_panel_shadow(panel)
 
@@ -592,43 +612,48 @@ class TableDetailsPage(QWidget):
 
         # Header
         header = QFrame()
-        header.setStyleSheet("QFrame { background-color: #2D3748; border-top-left-radius: 10px; border-top-right-radius: 10px; }")
+        style(header, "QFrame { background-color: @surface; border-top-left-radius: 10px; border-top-right-radius: 10px; }")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(12, 10, 12, 10)
         table_icon = QLabel("⊞")
-        table_icon.setStyleSheet("QLabel { font-size: 14px; color: #A0AEC0; background: transparent; }")
+        style(table_icon, "QLabel { font-size: 14px; color: @text_muted; background: transparent; }")
         table_label = QLabel(self.table_name)
-        table_label.setStyleSheet("QLabel { color: #FFFFFF; font-size: 14px; font-weight: 600; "
-                                  "background: transparent; }")
-        self.row_count_label = QLabel("0 rows")
-        self.row_count_label.setStyleSheet("QLabel { background-color: #4A5568; color: #E2E8F0; padding: 4px 10px; "
-                                           "border-radius: 10px; font-size: 11px; }")
+        style(table_label, "QLabel { color: @text; font-size: 14px; font-weight: 600; "
+                           "background: transparent; }")
+        self.row_count_label = QLabel()
+        self._update_row_count()
+        style(self.row_count_label, "QLabel { background-color: @surface_raised; color: @text; padding: 4px 10px; "
+                                    "border-radius: 10px; font-size: 11px; }")
         header_layout.addWidget(table_icon)
         header_layout.addSpacing(4)
         header_layout.addWidget(table_label)
         header_layout.addStretch()
 
-        self.pending_label = QLabel("● unsaved - Run to save")
-        self.pending_label.setStyleSheet("QLabel { color: #fbbf24; font-size: 11px; font-weight: 600; "
-                                         "background: transparent; }")
-        self.pending_label.setToolTip("These changes are in the SQL panel. Click Run Query to save them to the database.")
+        self.pending_label = QLabel()
+        bind(self.pending_label.setText, "table_editor.data.unsaved")
+        style(self.pending_label, "QLabel { color: @warning_text; font-size: 11px; font-weight: 600; "
+                                  "background: transparent; }")
+        bind(self.pending_label.setToolTip,
+             lambda: tr("table_editor.data.unsaved_tip", run_query=tr("common.action.run_query")))
+        self.pending_label.setWordWrap(True)  # on two lines rather than widen the page, where a language is long
         self.pending_label.hide()
         header_layout.addWidget(self.pending_label)
-        self.discard_btn = QPushButton("Discard")
+        self.discard_btn = QPushButton()
+        bind(self.discard_btn.setText, "common.action.discard")
         self.discard_btn.setFixedHeight(22)
         self.discard_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.discard_btn.setToolTip("Throw away this table's changes that have not been run yet")
-        self.discard_btn.setStyleSheet("""
+        bind(self.discard_btn.setToolTip, "table_editor.data.discard_tip")
+        style(self.discard_btn, """
             QPushButton {
-                background-color: #7f1d1d;
-                color: #fca5a5;
+                background-color: @danger_subtle;
+                color: @danger_text;
                 border: none;
                 border-radius: 4px;
                 font-size: 11px;
                 font-weight: 600;
                 padding: 0 8px;
             }
-            QPushButton:hover { background-color: #991b1b; color: #fee2e2; }
+            QPushButton:hover { background-color: @danger; color: @on_danger; }
         """)
         self.discard_btn.clicked.connect(lambda: self.discard_requested.emit(self.table_name))
         self.discard_btn.hide()
@@ -640,26 +665,27 @@ class TableDetailsPage(QWidget):
         # Data header
         data_header = QFrame()
         data_header.setFixedHeight(32)
-        data_header.setStyleSheet("QFrame { background-color: #48BB78; }")
+        style(data_header, "QFrame { background-color: @success; }")
         data_header_layout = QHBoxLayout(data_header)
         data_header_layout.setContentsMargins(12, 0, 12, 0)
         data_icon = QLabel("≡")
-        data_icon.setStyleSheet("QLabel { font-size: 12px; color: #FFFFFF; background: transparent; }")
-        data_title = QLabel("Data Records")
-        data_title.setStyleSheet("QLabel { color: #FFFFFF; font-size: 12px; font-weight: 600; "
-                                 "background: transparent; }")
+        style(data_icon, "QLabel { font-size: 12px; color: @on_success; background: transparent; }")
+        data_title = QLabel()
+        bind(data_title.setText, "table_editor.data.title")
+        style(data_title, "QLabel { color: @on_success; font-size: 12px; font-weight: 600; "
+                          "background: transparent; }")
         data_header_layout.addWidget(data_icon)
         data_header_layout.addSpacing(4)
         data_header_layout.addWidget(data_title)
         data_header_layout.addStretch()
-        self.value_btn = QPushButton("⊟  Value")
+        self.value_btn = QPushButton()
+        bind(self.value_btn.setText, "table_editor.data.value")
         self.value_btn.setCheckable(True)
         self.value_btn.setFixedHeight(22)
         self.value_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.value_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.value_btn.setToolTip("Show the whole value of the selected cell under the rows "
-                                  f"({shortcut_text(VALUE_PANEL_KEYS[0])})")
-        self.value_btn.setStyleSheet(VALUE_BUTTON_STYLE)
+        bind(self.value_btn.setToolTip, "table_editor.data.value_tip", keys=shortcut_text(VALUE_PANEL_KEYS[0]))
+        style(self.value_btn, VALUE_BUTTON_STYLE)
         self.value_btn.toggled.connect(self._on_value_toggled)
         data_header_layout.addWidget(self.value_btn)
         layout.addWidget(data_header)
@@ -667,8 +693,8 @@ class TableDetailsPage(QWidget):
         # What the database would refuse in the changes, and a value that was not taken
         self.problems_label = QLabel()
         self.problems_label.setWordWrap(True)
-        self.problems_label.setStyleSheet("""
-            QLabel { color: #fde68a; background-color: #422006; border-left: 3px solid #f59e0b;
+        style(self.problems_label, """
+            QLabel { color: @warning_text; background-color: @warning_subtle; border-left: 3px solid @warning;
                      font-size: 11px; padding: 8px 12px; }
         """)
         self.problems_label.hide()
@@ -687,7 +713,7 @@ class TableDetailsPage(QWidget):
         self.table.cellChanged.connect(self._on_cell_changed)
         self.table.currentCellChanged.connect(lambda *_: self._sync_value_panel())
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
-        self.table.setStyleSheet(DATA_TABLE_STYLE)
+        style(self.table, DATA_TABLE_STYLE)
         for keys in VALUE_PANEL_KEYS:
             shortcut = QShortcut(QKeySequence(keys), self.table)
             shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
@@ -702,7 +728,7 @@ class TableDetailsPage(QWidget):
         self.value_panel.closed.connect(lambda: self.value_btn.setChecked(False))
 
         self.rows_split = QSplitter(Qt.Orientation.Vertical)
-        self.rows_split.setStyleSheet("QSplitter::handle { background-color: #3D4852; }")
+        style(self.rows_split, "QSplitter::handle { background-color: @border; }")
         self.rows_split.setHandleWidth(3)
         self.rows_split.setChildrenCollapsible(False)
         self.rows_split.addWidget(self.table)
@@ -711,11 +737,12 @@ class TableDetailsPage(QWidget):
         self.rows_split.setStretchFactor(1, 0)
         layout.addWidget(self.rows_split)
 
-        self.add_row_btn = QPushButton("+ Add Row")
+        self.add_row_btn = QPushButton()
+        bind(self.add_row_btn.setText, "table_editor.data.add_row")
         self.add_row_btn.setFixedHeight(38)
         self.add_row_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.add_row_btn.clicked.connect(self.add_rows)
-        self.add_row_btn.setStyleSheet(BOTTOM_BUTTON_STYLE)
+        style(self.add_row_btn, BOTTOM_BUTTON_STYLE)
         layout.addWidget(self.add_row_btn)
         return panel
 
@@ -754,7 +781,7 @@ class TableDetailsPage(QWidget):
         return None
 
     def _not_taken(self, col, problem):
-        return f"{self.state.columns[col][0]} {problem} - the value was not taken."
+        return tr("table_editor.data.not_taken", field=self.state.columns[col][0], problem=problem)
 
     def _value_cut(self, row, col):
         """The database holds more of this value than was read (db.values.MAX_TEXT_LENGTH): saved back, the
@@ -784,17 +811,33 @@ class TableDetailsPage(QWidget):
             in_place = self.state.editable and "\n" not in text and "\r" not in text and not self._value_cut(row, col)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable if in_place
                           else item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            if value is None or (isinstance(value, str) and value.strip().upper() == NULL_TEXT):
-                item.setForeground(QColor("#718096"))
-                item.setFont(self._cell_font(italic=True))
-            elif self._is_id_column(col):
-                item.setForeground(QColor("#63B3ED"))
-                item.setFont(self._cell_font(bold=True))
-            elif sqlgen.is_exact_decimal_type(column_type):
-                item.setForeground(QColor("#48BB78"))
-                item.setFont(self._cell_font(bold=True))
-            else:
-                item.setForeground(QColor("#E2E8F0"))
+            self._paint_cell(item, col, value)
+        finally:
+            self.table.blockSignals(False)
+
+    def _paint_cell(self, item, col, value):
+        """A value's colour and font, by what it is: NULL, a key, an exact number or anything else"""
+        if value is None or (isinstance(value, str) and value.strip().upper() == NULL_TEXT):
+            item.setForeground(color("null_text"))
+            item.setFont(self._cell_font(italic=True))
+        elif self._is_id_column(col):
+            item.setForeground(color("accent_text"))
+            item.setFont(self._cell_font(bold=True))
+        elif sqlgen.is_exact_decimal_type(self._column_type(col)):
+            item.setForeground(color("success_text"))
+            item.setFont(self._cell_font(bold=True))
+        else:
+            item.setForeground(color("text"))
+
+    def _paint_cells(self):
+        """Every value again, in the colours of the theme now chosen"""
+        self.table.blockSignals(True)
+        try:
+            for row, values in enumerate(self.state.rows):
+                for col, value in enumerate(values):
+                    item = self.table.item(row, col)
+                    if item is not None:
+                        self._paint_cell(item, col, value)
         finally:
             self.table.blockSignals(False)
 
@@ -809,7 +852,7 @@ class TableDetailsPage(QWidget):
         if not self.state.editable:
             return
         if not self.state.columns:
-            show_styled_message(self, "No Fields", "Please add at least one field before adding rows.",
+            show_styled_message(self, tr("table_editor.data.no_fields_title"), tr("table_editor.data.no_fields"),
                                 QMessageBox.Icon.Warning)
             return
         row = self.state.add_row()
@@ -875,10 +918,11 @@ class TableDetailsPage(QWidget):
         column = self.state.columns[col]
         cut = self._value_cut(row, col)
         if cut:
-            note = "only these were read, so it is read-only"
+            note = tr("table_editor.data.cut_note")
         else:
-            note = "" if self.state.editable else "views are read-only"
-        self.value_panel.show_value(column[0], column[1], self.state.rows[row][col], where=f"row {row + 1}",
+            note = "" if self.state.editable else tr("table_editor.data.view_note")
+        self.value_panel.show_value(column[0], column[1], self.state.rows[row][col],
+                                    where=tr("table_editor.data.where_row", row=row + 1),
                                     editable=self.state.editable and not cut, note=note)
 
     def _on_panel_edited(self, text):
@@ -890,7 +934,8 @@ class TableDetailsPage(QWidget):
         self._panel_problem = self._take_value(row, col, text)
         if self._panel_problem:
             self.cell_notice = notice
-            self.value_panel.set_problem(f"{self.state.columns[col][0]} {self._panel_problem} - not taken")
+            self.value_panel.set_problem(tr("table_editor.data.not_taken_here", field=self.state.columns[col][0],
+                                            problem=self._panel_problem))
 
     def _on_panel_left(self):
         """The value panel was left with text its column cannot hold: as in a cell, the value was not taken"""
@@ -914,12 +959,20 @@ class TableDetailsPage(QWidget):
         self.pending_label.setVisible(pending)
         self.discard_btn.setVisible(pending)
 
+    def _follow_preferences(self):
+        """After a switch of language or theme: what is made from the state rather than bound - the colours of
+        the values, the problems, and where the value panel is (not while it holds text that was not taken)"""
+        self._paint_cells()
+        self._show_problems()
+        if not self._panel_problem:
+            self._sync_value_panel()
+
     def _update_row_count(self, truncated=False):
         count = len(self.state.rows)
         if truncated:
-            self.row_count_label.setText(f"first {count} rows")
+            bind(self.row_count_label.setText, lambda: trn("table_editor.first_rows", count))
         else:
-            self.row_count_label.setText(f"{count} row{'s' if count != 1 else ''}")
+            bind(self.row_count_label.setText, lambda: trn("table_editor.rows", count))
 
     def keyPressEvent(self, event):
         if event.key() not in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):  # a Mac's delete key is Backspace
@@ -928,7 +981,7 @@ class TableDetailsPage(QWidget):
         selected_rows = sorted({index.row() for index in self.table.selectedIndexes()})
         if not selected_rows or not self.state.editable:
             return
-        if not confirm(self, "Delete Row(s)", "Do you want to delete the selected row(s)?"):
+        if not confirm(self, tr("table_editor.delete_rows.title"), tr("table_editor.delete_rows.question")):
             return
         self.state.delete_rows(selected_rows)
         for row in reversed(selected_rows):

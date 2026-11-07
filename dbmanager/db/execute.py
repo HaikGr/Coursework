@@ -7,9 +7,11 @@ fails, the others are rolled back (MySQL commits CREATE/ALTER/DROP by itself, so
 
 import time
 
+from dbmanager import i18n
 from dbmanager.db.drivers import DatabaseError, error_message
 from dbmanager.db.script import statement_type
 from dbmanager.db.values import bit_to_int, to_value
+from dbmanager.i18n import tr
 
 _MYSQL_BIT = 16  # pymysql.constants.FIELD_TYPE.BIT
 
@@ -27,13 +29,22 @@ def run_statements(db_connection, db_type, statements, max_rows):
                 results.append(_run_one(cursor, db_type, statement, kind, max_rows))
             except Exception as error:  # noqa: BLE001 - the driver's error, whatever its class
                 _rollback(db_connection)
-                which = (f"statement {number} of {len(statements)} ({kind}) - nothing was saved"
-                         if len(statements) > 1 else "the statement")
-                raise DatabaseError(f"The database rejected {which}: {error_message(error)}") from None
+                params = {"reason": error_message(error)}
+                if len(statements) > 1:
+                    key = "db.execute.rejected_in_script"
+                    params.update(number=number, total=len(statements), kind=kind)
+                else:
+                    key = "db.execute.rejected"
+                raise DatabaseError(tr(key, **params), record=_in_english(key, **params)) from None
         db_connection.commit()
     finally:
         cursor.close()
     return results, round((time.monotonic() - started) * 1000)
+
+
+def _in_english(key, **params):
+    """A text as the audit log keeps it: in English, whatever language the screens are in"""
+    return i18n.catalogue(i18n.DEFAULT_LANGUAGE)[key].format(**params)
 
 
 def _run_one(cursor, db_type, statement, kind, max_rows):

@@ -11,6 +11,7 @@ The default value is typed like a cell (no quotes) and written as a literal of t
 
 import re
 
+from dbmanager.i18n import tr
 from dbmanager.sql.identifiers import quote_identifier
 
 # Types offered by the "Add Field" dialog -> (PostgreSQL/H2, MySQL/MariaDB, SQL Server)
@@ -102,9 +103,9 @@ def value_problem(text, type_name):
     if base_type(type_name) in _BOOLEAN or (type_name or "").lower().replace(" ", "") == "tinyint(1)":
         if stripped.lower() in _TRUE | _FALSE:
             return None
-        return f"holds true or false ({type_name}; also 1/0, yes/no), not \"{stripped}\""
+        return tr("db.generator.not_true_or_false", type_name=type_name, value=stripped)
     if base_type(type_name) in _NUMERIC and not looks_like_number(stripped):
-        return f"holds numbers ({type_name}), not \"{stripped}\""
+        return tr("db.generator.not_a_number", type_name=type_name, value=stripped)
     return None
 
 

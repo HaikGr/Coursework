@@ -5,12 +5,14 @@ import unittest
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from dbmanager import i18n
 from dbmanager.api.client import ApiClient, ApiError
 
 
 class FakeBackend(BaseHTTPRequestHandler):
     """Answers by path; records what it was sent."""
     requests = []
+    languages = []  # the Accept-Language of each request
 
     def log_message(self, *args):
         pass
@@ -27,6 +29,7 @@ class FakeBackend(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(length)) if length else None
         FakeBackend.requests.append((self.command, self.path, self.headers.get("Authorization"), body))
+        FakeBackend.languages.append(self.headers.get("Accept-Language"))
         if self.path == "/api/auth/login":
             if body["password"] == "right":
                 self._reply(200, {"token": "t0k3n", "userId": 7, "username": "ann", "roles": ["USER"],
@@ -89,7 +92,24 @@ class ApiClientTest(unittest.TestCase):
 
     def setUp(self):
         FakeBackend.requests.clear()
+        FakeBackend.languages.clear()
         self.api = ApiClient(self.url, timeout=5)
+
+    def test_every_request_asks_for_answers_in_the_language_of_the_app(self):
+        self.addCleanup(i18n.set_language, i18n.language().code)
+        for code, tag in (("hy", "hy-AM"), ("ru", "ru-RU"), ("en", "en-US")):
+            i18n.set_language(code)
+            self.api.login("ann", "right")
+            self.assertEqual(FakeBackend.languages[-1], tag)
+
+    def test_what_the_app_says_itself_is_in_its_language(self):
+        self.addCleanup(i18n.set_language, i18n.language().code)
+        i18n.set_language("ru")
+        with self.assertRaises(ApiError) as caught:
+            ApiClient("ftp://example.com").login("ann", "x")
+        self.assertIn("недопустимый адрес сервера", str(caught.exception))
+        self.assertEqual(ApiError(400, "Ошибка", {"password": "слишком короткий"}).args[0],
+                         "Ошибка\n• Пароль: слишком короткий")
 
     def test_login_stores_the_session_and_sends_the_token_afterwards(self):
         self.api.login("ann", "right")

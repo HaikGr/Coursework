@@ -1,0 +1,49 @@
+{
+  "ok": "OK",
+  "cancel": "Cancel",
+  "close": "Close",
+  "save": "Save",
+  "delete": "Delete",
+  "yes": "Yes",
+  "no": "No",
+  "back": "Back",
+  "edit": "Edit",
+  "rename": "Rename",
+  "copy": "Copy",
+  "clear": "Clear",
+  "refresh": "Refresh",
+  "error": "Error",
+  "warning": "Warning",
+  "list_separator": ", ",
+  "list_join": "{head} and {last}",
+  "action": {
+    "add_database": "+ Add Database",
+    "edit_connection": "Edit connection",
+    "run_query": "Run Query",
+    "go_premium": "Go Premium",
+    "discard": "Discard"
+  },
+  "preferences": {
+    "language_tip": "Language",
+    "theme_tip": "Theme",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "qt": {
+    "ok": "OK",
+    "yes": "&Yes",
+    "no": "&No",
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "discard": "Discard",
+    "apply": "Apply",
+    "undo": "&Undo",
+    "redo": "&Redo",
+    "cut": "Cu&t",
+    "copy": "&Copy",
+    "paste": "&Paste",
+    "delete": "Delete",
+    "select_all": "Select All"
+  }
+}

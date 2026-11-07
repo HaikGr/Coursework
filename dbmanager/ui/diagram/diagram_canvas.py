@@ -2,10 +2,12 @@ import math
 
 from PyQt6 import sip
 from PyQt6.QtCore import QPoint, QPointF, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
+from PyQt6.QtGui import QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QApplication, QWidget
 
+from dbmanager.i18n import tr
 from dbmanager.model.links import End, plan_link
+from dbmanager.ui.common.theme import color, style
 from dbmanager.ui.diagram.field_row import FieldRow, key_flag
 
 
@@ -43,7 +45,7 @@ class DiagramCanvas(QWidget):
         self.hover_target = None  # the row it would go to, lit while valid
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)  # for Esc
-        self.setStyleSheet("QWidget { background-color: #1A1F2E; }")
+        style(self, "QWidget { background-color: @canvas; }")
 
     def add_card(self, card):
         card.canvas = self
@@ -120,9 +122,7 @@ class DiagramCanvas(QWidget):
                 control_offset = (position_in_group - (total_in_group - 1) / 2) * 40
 
             # All connections use the same color for consistency
-            color = QColor('#69a7ff')
-
-            self.draw_connection_arrow(painter, start, end, color, relation, control_offset)
+            self.draw_connection_arrow(painter, start, end, color("link"), relation, control_offset)
 
             # Restore painter state
             painter.restore()
@@ -132,7 +132,7 @@ class DiagramCanvas(QWidget):
             start, end = self.get_field_center(left, left=False), self.get_field_center(right, left=True)
             if start != (0, 0) and end != (0, 0):
                 painter.save()
-                painter.setPen(QPen(QColor('#2dd4bf'), 2, Qt.PenStyle.DashLine))
+                painter.setPen(QPen(color("link_join"), 2, Qt.PenStyle.DashLine))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 path = QPainterPath(QPointF(*start))
                 dx = max(abs(end[0] - start[0]) * 0.5, 60)
@@ -144,10 +144,10 @@ class DiagramCanvas(QWidget):
         if self.source is not None and self.preview_end is not None:
             start = self.get_field_center(self.source, left=False)
             if start != (0, 0):
-                color = QColor('#4ade80' if self.hover_target is not None else '#FFD57F')
-                painter.setPen(QPen(color, 2, Qt.PenStyle.DashLine))
+                line = color("link_ok" if self.hover_target is not None else "link_draft")
+                painter.setPen(QPen(line, 2, Qt.PenStyle.DashLine))
                 painter.drawLine(QPoint(*start), self.preview_end)
-                painter.setBrush(color)
+                painter.setBrush(line)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawEllipse(QPointF(self.preview_end), 4, 4)
 
@@ -292,14 +292,12 @@ class DiagramCanvas(QWidget):
                 self.complete_link(target)
         elif pressed is not None and self._start_link(pressed[0]):
             # A click: the link waits for a click on the other field
-            self.link_message.emit(f"Now click the field of another table that {link_end(self.source)} links to "
-                                   "- Esc gives up.", False)
+            self.link_message.emit(tr("diagram.link.click_other", source=link_end(self.source)), False)
             self._follow(global_pos)
 
     def _start_link(self, row):
         if not self.links_enabled:
-            self.link_message.emit("Only the owner of this database can link its tables (a link adds a foreign "
-                                   "key). To join tables in a query, use Join… in the query panel.", False)
+            self.link_message.emit(tr("diagram.link.owner_only"), False)
             return False
         self.cancel_connection()
         self.source = row
@@ -337,20 +335,19 @@ class DiagramCanvas(QWidget):
             return False
         parent, child = (source, target) if plan[0] == link_end(source) else (target, source)
         if self.connection_exists(parent, child):
-            self.link_message.emit(f"{plan[1]} and {plan[0]} are linked already.", False)
+            self.link_message.emit(tr("diagram.link.already_linked", child=plan[1], parent=plan[0]), False)
             return False
         current = next((pk for pk, fk, _ in self.connections if fk is child), None)
         if current is not None:
-            self.link_message.emit(f"{plan[1]} points at {link_end(current)} already. Remove that link first "
-                                   "(right-click the field).", False)
+            self.link_message.emit(tr("diagram.link.points_elsewhere", child=plan[1], parent=link_end(current)), False)
             return False
         self.connections.append((parent, child, 'one-to-many'))
         parent.add_connection()
         child.add_connection()
         self.connections_changed.emit()
         self.update()
-        self.link_message.emit(f"Linked: {plan[1]} → {plan[0]}. Queries join the two tables on it, and it is saved "
-                               "as a foreign key when you click Run Query.", True)
+        self.link_message.emit(tr("diagram.link.linked", child=plan[1], parent=plan[0],
+                                  run_query=tr("common.action.run_query")), True)
         return True
 
     def cancel_connection(self):

@@ -17,12 +17,13 @@ FULL_TEXT_ROLE = Qt.ItemDataRole.UserRole + 1
 # A tooltip is a glance: past this the value panel shows the rest
 TOOLTIP_MAX_CHARS = 1500
 
+# The scroll bars of a grid and of the value panel under it: a theme.qss template
 SCROLLBAR_STYLE = """
-    QScrollBar:vertical { background: #2D3748; width: 10px; }
-    QScrollBar:horizontal { background: #2D3748; height: 10px; }
-    QScrollBar::handle:vertical { background: #4A5568; border-radius: 3px; min-height: 32px; margin: 2px; }
-    QScrollBar::handle:horizontal { background: #4A5568; border-radius: 3px; min-width: 32px; margin: 2px; }
-    QScrollBar::handle:hover { background: #718096; }
+    QScrollBar:vertical { background: @surface; width: 10px; }
+    QScrollBar:horizontal { background: @surface; height: 10px; }
+    QScrollBar::handle:vertical { background: @scrollbar; border-radius: 3px; min-height: 32px; margin: 2px; }
+    QScrollBar::handle:horizontal { background: @scrollbar; border-radius: 3px; min-width: 32px; margin: 2px; }
+    QScrollBar::handle:hover { background: @scrollbar_hover; }
     QScrollBar::add-line, QScrollBar::sub-line { width: 0px; height: 0px; }
     QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 """

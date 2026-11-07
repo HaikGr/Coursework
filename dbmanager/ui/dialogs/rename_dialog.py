@@ -1,6 +1,8 @@
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, QPushButton, QVBoxLayout
 
+from dbmanager.i18n import tr
 from dbmanager.ui.common.dark_dialog import settle_enter_key
+from dbmanager.ui.common.theme import qss
 
 # The width of the field: a short name gets the usual width, a longer one is shown whole up to the most;
 # what goes beyond that scrolls. TEXT_ROOM is the field's padding and border, and room for the cursor.
@@ -8,33 +10,33 @@ FIELD_WIDTH, FIELD_MAX_WIDTH, TEXT_ROOM = 310, 600, 32
 
 
 class RenameDialog(QDialog):
-    """Dark themed one-line input."""
+    """One-line input in the current theme. title and prompt are shown as given (already translated)."""
 
     def __init__(self, parent, title, prompt, current):
         super().__init__(parent)
         self.setWindowTitle(title)
         # QLabel sets its own background: the dialog inherits the style sheet of the page it opens over
-        self.setStyleSheet("""
-            QDialog { background-color: #1f2937; }
-            QLabel { color: #f3f4f6; font-size: 14px; background: transparent; }
+        self.setStyleSheet(qss("""
+            QDialog { background-color: @surface; }
+            QLabel { color: @text; font-size: 14px; background: transparent; }
             QLineEdit {
-                background-color: #374151;
-                color: #f3f4f6;
-                border: 2px solid #4b5563;
+                background-color: @sunken;
+                color: @text;
+                border: 2px solid @border_strong;
                 border-radius: 6px;
                 padding: 10px;
                 font-size: 14px;
-                selection-background-color: #3777f0;
-                selection-color: #FFFFFF;
+                selection-background-color: @selection;
+                selection-color: @on_selection;
             }
-            QLineEdit:focus { border: 2px solid #3777f0; }
+            QLineEdit:focus { border: 2px solid @focus; }
             QPushButton {
                 border-radius: 6px;
                 padding: 8px 20px;
                 font-size: 13px;
                 min-width: 80px;
             }
-        """)
+        """))
 
         layout = QVBoxLayout(self)
         # As big as what it holds: a fixed size squeezed the padded field until its text was cut in half
@@ -53,13 +55,13 @@ class RenameDialog(QDialog):
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("QPushButton { background-color: #4b5563; color: white; } "
-                                 "QPushButton:hover { background-color: #6b7280; }")
+        cancel_btn = QPushButton(tr("common.cancel"))
+        cancel_btn.setStyleSheet(qss("QPushButton { background-color: @surface_raised; color: @text; } "
+                                     "QPushButton:hover { background-color: @surface_pressed; }"))
         cancel_btn.clicked.connect(self.reject)
-        ok_btn = QPushButton("Rename")
-        ok_btn.setStyleSheet("QPushButton { background-color: #3777f0; color: white; } "
-                             "QPushButton:hover { background-color: #2563eb; }")
+        ok_btn = QPushButton(tr("common.rename"))
+        ok_btn.setStyleSheet(qss("QPushButton { background-color: @accent; color: @on_accent; } "
+                                 "QPushButton:hover { background-color: @accent_hover; }"))
         ok_btn.clicked.connect(self.accept)
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(ok_btn)

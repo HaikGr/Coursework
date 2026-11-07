@@ -13,20 +13,38 @@ keep the rows that match nothing (LEFT JOIN). Where both connect two tables, the
 
 import re
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 
+from dbmanager.i18n import tr
 from dbmanager.sql.generator import is_numeric_type, is_text_type, literal, looks_like_number
 from dbmanager.sql.identifiers import quote_identifier
 
-# key -> (name on buttons and in menus, what it gives back)
-AGGREGATES = {
-    "SUM": ("SUM", "the total of the values"),
-    "AVG": ("AVG", "the average of the values"),
-    "COUNT": ("COUNT", "how many rows have a value"),
-    "COUNT_DISTINCT": ("COUNT UNIQUE", "how many different values there are"),
-    "MIN": ("MIN", "the smallest value"),
-    "MAX": ("MAX", "the largest value"),
-}
+
+class _Texts(Mapping):
+    """A dict whose values are made from their keys on each lookup, so their texts are in the current language"""
+
+    def __init__(self, keys, make):
+        self._keys, self._make = tuple(keys), make
+
+    def __getitem__(self, key):
+        if key not in self._keys:
+            raise KeyError(key)
+        return self._make(key)
+
+    def __iter__(self):
+        return iter(self._keys)
+
+    def __len__(self):
+        return len(self._keys)
+
+
+# key -> name on buttons and in menus (SQL's own, so the same in every language)
+_AGGREGATE_NAMES = {"SUM": "SUM", "AVG": "AVG", "COUNT": "COUNT", "COUNT_DISTINCT": "COUNT UNIQUE", "MIN": "MIN",
+                    "MAX": "MAX"}
+# key -> (name on buttons and in menus, what it gives back: "the total of the values", in the current language)
+AGGREGATES = _Texts(_AGGREGATE_NAMES,
+                    lambda key: (_AGGREGATE_NAMES[key], tr(f"model.query.aggregates.{key.lower()}")))
 _NUMBERS_ONLY = {"SUM", "AVG"}
 _COUNTS = {"COUNT", "COUNT_DISTINCT"}
 ROW_COUNT = "row_count"
@@ -44,7 +62,8 @@ def aggregate_problem(aggregate, column_label, type_name):
     """Why this aggregate cannot summarise a column of this type, or None when it can.
     A column whose type is not known gets the benefit of the doubt."""
     if aggregate in _NUMBERS_ONLY and type_name and not is_numeric_type(type_name):
-        return f"{AGGREGATES[aggregate][0]} works on numbers, and {column_label} holds {type_name} values"
+        return tr("model.query.numbers_only", aggregate=AGGREGATES[aggregate][0], column=column_label,
+                  type_name=type_name)
     return None
 
 
@@ -55,30 +74,40 @@ LIST = -1  # an operator that takes a comma separated list of values
 @dataclass(frozen=True)
 class Operator:
     key: str
-    label: str
+    label_key: str  # its name in the catalogue: model.query.operators.<label_key>
     values: int  # how many values it takes: 0, 1, 2 or LIST
     text_only: bool = False
+
+    @property
+    def label(self):
+        """Its name in the current language: "equals", "is between", ..."""
+        return tr(f"model.query.operators.{self.label_key}")
 
 
 OPERATORS = [
     Operator("=", "equals", 1),
-    Operator("<>", "does not equal", 1),
-    Operator(">", "is greater than", 1),
-    Operator(">=", "is at least", 1),
-    Operator("<", "is less than", 1),
-    Operator("<=", "is at most", 1),
-    Operator("BETWEEN", "is between", 2),
-    Operator("IN", "is one of", LIST),
-    Operator("NOT IN", "is none of", LIST),
+    Operator("<>", "not_equal", 1),
+    Operator(">", "greater", 1),
+    Operator(">=", "at_least", 1),
+    Operator("<", "less", 1),
+    Operator("<=", "at_most", 1),
+    Operator("BETWEEN", "between", 2),
+    Operator("IN", "one_of", LIST),
+    Operator("NOT IN", "none_of", LIST),
     Operator("CONTAINS", "contains", 1, text_only=True),
-    Operator("STARTS", "starts with", 1, text_only=True),
-    Operator("ENDS", "ends with", 1, text_only=True),
-    Operator("IS NULL", "is empty (NULL)", 0),
-    Operator("IS NOT NULL", "is not empty", 0),
-    Operator("SQL", "custom SQL", 1),
+    Operator("STARTS", "starts_with", 1, text_only=True),
+    Operator("ENDS", "ends_with", 1, text_only=True),
+    Operator("IS NULL", "is_empty", 0),
+    Operator("IS NOT NULL", "is_not_empty", 0),
+    Operator("SQL", "custom_sql", 1),
 ]
 OPERATOR_BY_KEY = {operator.key: operator for operator in OPERATORS}
 _SYMBOLS = {"=", "<>", ">", ">=", "<", "<="}
+
+
+def operator_label(key):
+    """The name of a filter operator ("=", "BETWEEN", "IS NULL", ...) in the current language: "equals", ..."""
+    return OPERATOR_BY_KEY[key].label
 
 
 def operators_for(type_name):
@@ -136,22 +165,22 @@ class Filter:
         """What keeps the filter from being used, or None"""
         operator = OPERATOR_BY_KEY.get(self.operator)
         if operator is None:
-            return "Pick a way to compare"
+            return tr("model.query.filter.no_operator")
         values = self._values()
         if self.operator == "SQL":
-            return None if values[0] else "Type the rest of the condition, for example > 100"
+            return None if values[0] else tr("model.query.filter.no_condition")
         if operator.values == LIST and not values:
-            return "Type at least one value - separate several with commas"
+            return tr("model.query.filter.no_values")
         if operator.values == 2 and not all(values):
-            return "Type both values"
+            return tr("model.query.filter.both_values")
         if operator.values == 1 and not values[0]:
-            return "Type a value"
+            return tr("model.query.filter.no_value")
         if self.operator in ("=", "<>") and values[0].upper() == "NULL":
-            return "To find missing values, choose \"is empty (NULL)\""
+            return tr("model.query.filter.null_value", operator=operator_label("IS NULL"))
         if operator.values and not operator.text_only and is_numeric_type(self.value_type()):
             for value in values:
                 if not looks_like_number(value):
-                    return f"{self.target_label()} holds numbers, and \"{value}\" is not one"
+                    return tr("model.query.filter.not_a_number", target=self.target_label(), value=value)
         return None
 
     def sql(self, column_sql, db_type):
@@ -184,17 +213,20 @@ class Filter:
             return f"{target} {values[0]}"
         if operator.values == 0:
             return f"{target} {operator.label}"
-        shown = [value if looks_like_number(value) else f'"{value}"' for value in values]
+        shown = [value if looks_like_number(value) else tr("model.query.describe.quoted", value=value)
+                 for value in values]
         if operator.values == 2:
-            return f"{target} between {shown[0]} and {shown[1]}"
+            return tr("model.query.describe.between", target=target, low=shown[0], high=shown[1])
         if operator.values == LIST:
-            return f"{target} {operator.label} {', '.join(shown)}"
-        return f"{target} {self.operator if self.operator in _SYMBOLS else operator.label} {shown[0]}"
+            return tr("model.query.describe.list", target=target, operator=operator.label, values=", ".join(shown))
+        if self.operator in _SYMBOLS:
+            return f"{target} {self.operator} {shown[0]}"
+        return tr("model.query.describe.compare", target=target, operator=operator.label, value=shown[0])
 
 
 # ---------------- Joins made for the query ----------------
-JOIN_KINDS = {"INNER": "only the rows that match in both tables",
-              "LEFT": "every row of the first table, with or without a match"}
+# kind -> which rows it keeps: "only the rows that match in both tables", in the current language
+JOIN_KINDS = _Texts(("INNER", "LEFT"), lambda kind: tr(f"model.query.join_kinds.{kind.lower()}"))
 
 
 @dataclass
@@ -467,7 +499,7 @@ class QueryModel:
         for condition in self.filters:
             problem = condition.problem()
             if problem:
-                warnings.append(f"The filter on {condition.target_label()} is left out: {problem}")
+                warnings.append(tr("model.query.filter_left_out", target=condition.target_label(), problem=problem))
             else:
                 usable.append(condition)
         where = self._conditions([c for c in usable if not c.aggregate], col, db_type)
@@ -523,9 +555,7 @@ class QueryModel:
             if not path:
                 table = remaining.pop(0)
                 lines.append(f"CROSS JOIN {q(table)}")
-                warnings.append(f"{table} is not joined to {', '.join(joined)}, so every row of it is paired with "
-                                "every row of the others. Choose the fields to join it on with Join… below - or "
-                                "link it on the diagram.")
+                warnings.append(tr("model.query.not_joined", table=table, tables=", ".join(joined)))
                 self.unjoined.append(table)
                 joined.append(table)
                 continue

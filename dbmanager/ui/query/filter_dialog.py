@@ -2,47 +2,51 @@
 
 from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLineEdit, QVBoxLayout
 
+from dbmanager.i18n import tr
 from dbmanager.model.query import AGGREGATES, LIST, OPERATOR_BY_KEY, Filter, operators_for
 from dbmanager.sql.generator import is_numeric_type
 from dbmanager.sql.identifiers import quote_identifier
 from dbmanager.ui.common.dark_dialog import DIALOG_STYLE, ERROR_COLOR, button, label
 from dbmanager.ui.common.style import COMBO_ARROW, MONOSPACE
+from dbmanager.ui.common.theme import qss
 
+# A theme.qss template: the dialog is modal, so it takes the theme as it is when made
 _STYLE = DIALOG_STYLE + f"""
     QComboBox {{
-        background-color: #0f172a;
-        color: #f1f5f9;
-        border: 2px solid #334155;
+        background-color: @sunken;
+        color: @text;
+        border: 2px solid @border_strong;
         border-radius: 10px;
         padding: 8px 14px;
         font-size: 14px;
     }}
-    QComboBox:focus {{ border: 2px solid #0ea5e9; }}
+    QComboBox:focus {{ border: 2px solid @focus; }}
     QComboBox QAbstractItemView {{
-        background-color: #0f172a;
-        color: #f1f5f9;
-        selection-background-color: #0ea5e9;
-        border: 1px solid #334155;
+        background-color: @sunken;
+        color: @text;
+        selection-background-color: @selection;
+        selection-color: @on_selection;
+        border: 1px solid @border_strong;
         outline: none;
     }}
     QLabel#preview {{
-        color: #a5f3fc;
-        background-color: #0f172a;
-        border: 1px solid #334155;
+        color: @code_text;
+        background-color: @code_background;
+        border: 1px solid @border;
         border-radius: 8px;
         padding: 8px 10px;
         font-family: {MONOSPACE};
         font-size: 12px;
     }}
-    QPushButton#danger {{ background-color: transparent; color: #fca5a5; padding: 8px 4px; }}
-    QPushButton#danger:hover {{ color: #fecaca; text-decoration: underline; }}
+    QPushButton#danger {{ background-color: transparent; color: @danger_text; padding: 8px 4px; }}
+    QPushButton#danger:hover {{ color: @danger_text; text-decoration: underline; }}
 """ + COMBO_ARROW
 
 _HINTS = {
-    "SQL": "Written after the column exactly as typed, for example  > 100 OR {column} IS NULL",
-    "CONTAINS": "Finds the text anywhere in the value. Type it as it is - no quotes, no % signs.",
-    "STARTS": "Type the beginning as it is - no quotes, no % signs.",
-    "ENDS": "Type the end as it is - no quotes, no % signs.",
+    "SQL": "query.filter.hint_sql",
+    "CONTAINS": "query.filter.hint_contains",
+    "STARTS": "query.filter.hint_starts",
+    "ENDS": "query.filter.hint_ends",
 }
 
 
@@ -50,13 +54,13 @@ def _placeholder(operator, type_name):
     if operator == "SQL":
         return "> 100"
     if OPERATOR_BY_KEY[operator].values == LIST:
-        return "1, 2, 3" if is_numeric_type(type_name) else "Ann, Bob, Zoe"
+        return "1, 2, 3" if is_numeric_type(type_name) else tr("query.filter.sample_list")
     if is_numeric_type(type_name):
         return "100"
     lowered = (type_name or "").lower()
     if "date" in lowered or "time" in lowered:
         return "2024-12-31"
-    return "text"
+    return tr("query.filter.sample_text")
 
 
 class FilterDialog(QDialog):
@@ -69,8 +73,8 @@ class FilterDialog(QDialog):
         self.table, self.column, self.type_name, self.db_type = table, column, type_name or "", db_type
         self.result = None
         self.removed = False
-        self.setWindowTitle("Edit Filter" if existing else "Add Filter")
-        self.setStyleSheet(_STYLE)
+        self.setWindowTitle(tr("query.filter.edit_title" if existing else "query.filter.add"))
+        self.setStyleSheet(qss(_STYLE))
         self.setMinimumWidth(460)
 
         layout = QVBoxLayout(self)
@@ -83,11 +87,11 @@ class FilterDialog(QDialog):
 
         # Rows or groups: offered while the column is summarised, or when the filter already tests groups
         self.target_combo = QComboBox()
-        self.target_combo.addItem(f"each row's {column}", None)
+        self.target_combo.addItem(tr("query.filter.each_row", column=column), None)
         group_aggregate = aggregate or (existing.aggregate if existing else None)
         if group_aggregate:
             name = AGGREGATES[group_aggregate][0]
-            self.target_combo.addItem(f"{name} of {column} for each group", group_aggregate)
+            self.target_combo.addItem(tr("query.filter.each_group", aggregate=name, column=column), group_aggregate)
         self.target_combo.setVisible(self.target_combo.count() > 1)
         layout.addWidget(self.target_combo)
 
@@ -97,7 +101,7 @@ class FilterDialog(QDialog):
         values = QHBoxLayout()
         values.setSpacing(8)
         self.value_edit = QLineEdit()
-        self.and_label = label("and")
+        self.and_label = label(tr("query.filter.and"))
         self.second_edit = QLineEdit()
         values.addWidget(self.value_edit, stretch=1)
         values.addWidget(self.and_label)
@@ -109,15 +113,15 @@ class FilterDialog(QDialog):
         self.preview = label("", "preview", wrap=True)
         layout.addWidget(self.preview)
         self.status = label("", wrap=True)
-        self.status.setStyleSheet(f"QLabel {{ color: {ERROR_COLOR}; font-size: 12px; background: transparent; }}")
+        self.status.setStyleSheet(qss(f"QLabel {{ color: {ERROR_COLOR}; font-size: 12px; background: transparent; }}"))
         layout.addWidget(self.status)
 
         buttons = QHBoxLayout()
         if existing is not None:
-            buttons.addWidget(button("Remove filter", "danger", self._remove))
+            buttons.addWidget(button(tr("query.filter.remove"), "danger", self._remove))
         buttons.addStretch()
-        buttons.addWidget(button("Cancel", on_click=self.reject))
-        self.apply_btn = button("Apply" if existing else "Add Filter", "primary", self._apply)
+        buttons.addWidget(button(tr("common.cancel"), on_click=self.reject))
+        self.apply_btn = button(tr("query.dialog.apply" if existing else "query.filter.add"), "primary", self._apply)
         self.apply_btn.setDefault(True)
         buttons.addWidget(self.apply_btn)
         layout.addLayout(buttons)
@@ -173,14 +177,14 @@ class FilterDialog(QDialog):
         self.second_edit.setPlaceholderText(placeholder)
 
         if count == 0:
-            hint = "No value needed."
+            hint = "query.filter.hint_no_value"
         elif count == LIST:
-            hint = "Separate the values with commas. Type them as they are - no quotes needed."
+            hint = "query.filter.hint_list"
         else:
-            hint = _HINTS.get(operator.key, "Type the value as it is - no quotes needed.")
-        self.hint.setText(hint.format(column=self.column))
+            hint = _HINTS.get(operator.key, "query.filter.hint_value")
+        self.hint.setText(tr(hint, column=self.column))
 
-        self.heading.setText(f"Keep only the {'groups' if condition.aggregate else 'rows'} where…")
+        self.heading.setText(tr("query.filter.heading_groups" if condition.aggregate else "query.filter.heading_rows"))
         problem = condition.problem()
         shown = {0: [], 2: [self.value_edit, self.second_edit]}.get(count, [self.value_edit])
         typed = any(edit.text().strip() for edit in shown)

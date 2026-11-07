@@ -15,13 +15,14 @@ COMBO_ARROW = f"""
 # The first font of the list that is installed wins: Windows, macOS, then the usual Linux ones
 MONOSPACE = "'Cascadia Mono', Consolas, 'SF Mono', Menlo, 'DejaVu Sans Mono', 'Liberation Mono', monospace"
 
-# Light context menus (the sidebar, the fields on the diagram)
+# Context menus (the sidebar, the fields on the diagram): a theme.qss template
 MENU_STYLE = """
-    QMenu { background-color: #FFFFFF; color: #2D3748; border: 1px solid #CBD5E0; padding: 4px; font-size: 13px; }
+    QMenu { background-color: @surface; color: @text; border: 1px solid @border_strong; padding: 4px; font-size: 13px; }
     QMenu::item { padding: 6px 18px; border-radius: 4px; }
-    QMenu::item:selected { background-color: #3777f0; color: white; }
-    QMenu::item:disabled { color: #A0AEC0; }
-    QMenu::separator { height: 1px; background: #E2E8F0; margin: 4px 6px; }
+    QMenu::item:selected { background-color: @accent; color: @on_accent; }
+    QMenu::item:disabled { color: @text_disabled; }
+    QMenu::separator { height: 1px; background: @border; margin: 4px 6px; }
+    QMenu::indicator { width: 14px; height: 14px; }
 """
 
 

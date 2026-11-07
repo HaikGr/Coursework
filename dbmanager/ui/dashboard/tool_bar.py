@@ -3,8 +3,11 @@ from PyQt6.QtWidgets import (
     QAbstractSpinBox, QFrame, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget
 )
 
+from dbmanager.i18n import tr
 from dbmanager.model.query import AGGREGATES, aggregate_problem
 from dbmanager.ui.common.elided_label import ElidedLabel
+from dbmanager.ui.common.live import bind, unbind
+from dbmanager.ui.common.theme import style
 from dbmanager.ui.common.wrap_layout import WrapLayout
 
 _BUTTON_STYLE = """
@@ -18,12 +21,14 @@ _BUTTON_STYLE = """
         padding: 4px 8px;
     }}
     QPushButton:hover {{ background-color: {hover}; }}
-    QPushButton:disabled {{ background-color: #f8fafc; color: #cbd5e1; border: 1px solid #e2e8f0; }}
+    QPushButton:disabled {{ background-color: @surface_alt; color: @text_disabled; border: 1px solid @border; }}
 """
-_ACTIVE = {"background": "#3b82f6", "color": "white", "border": "#3b82f6", "weight": 600, "hover": "#2563eb"}
-_OPTION_ACTIVE = {"background": "#0f766e", "color": "white", "border": "#0f766e", "weight": 600, "hover": "#115e59"}
-_IDLE = {"background": "#ffffff", "color": "#475569", "border": "#cbd5e1", "weight": 500, "hover": "#e2e8f0"}
-_CAPTION = "QLabel { color: #64748b; font-size: 9px; font-weight: 700; background: transparent; border: none; }"
+_ACTIVE = {"background": "@accent", "color": "@on_accent", "border": "@accent", "weight": 600, "hover": "@accent_hover"}
+_OPTION_ACTIVE = {"background": "@option", "color": "@on_option", "border": "@option", "weight": 600,
+                  "hover": "@option_hover"}
+_IDLE = {"background": "@surface", "color": "@text_secondary", "border": "@border_strong", "weight": 500,
+         "hover": "@surface_pressed"}
+_CAPTION = "QLabel { color: @text_muted; font-size: 9px; font-weight: 700; background: transparent; border: none; }"
 
 
 class AggregateButton(QPushButton):
@@ -38,7 +43,7 @@ class AggregateButton(QPushButton):
         self._update_style()
 
     def _update_style(self):
-        self.setStyleSheet(_BUTTON_STYLE.format(**(self._active_colors if self.is_active else _IDLE)))
+        style(self, _BUTTON_STYLE.format(**(self._active_colors if self.is_active else _IDLE)))
 
     def set_active(self, active):
         if active != self.is_active:
@@ -72,7 +77,7 @@ class Toolbar(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("toolbar")
-        self.setStyleSheet("QFrame#toolbar { background-color: #f8fafc; border-bottom: 1px solid #e2e8f0; }")
+        style(self, "QFrame#toolbar { background-color: @surface_alt; border-bottom: 1px solid @border; }")
         self.target = None  # the selected QueryColumn
 
         layout = WrapLayout(self, spacing=14)
@@ -89,8 +94,9 @@ class Toolbar(QFrame):
         target_layout = QVBoxLayout(target_box)
         target_layout.setContentsMargins(0, 0, 0, 0)
         target_layout.setSpacing(0)
-        caption = QLabel("SUMMARIZE COLUMN")
-        caption.setStyleSheet(_CAPTION)
+        caption = QLabel()
+        bind(caption.setText, "dashboard.tool_bar.summarize_column")
+        style(caption, _CAPTION)
         target_layout.addWidget(caption)
         self.target_label = ElidedLabel()
         target_layout.addWidget(self.target_label)
@@ -103,44 +109,46 @@ class Toolbar(QFrame):
             summary_row.addWidget(btn)
             self.agg_buttons[key] = btn
 
-        self.count_btn = AggregateButton("Count rows", _OPTION_ACTIVE)
-        self.count_btn.setToolTip("Add a column with the number of rows - of each group, when some columns\n"
-                                  "are shown as they are (COUNT(*) ... GROUP BY)")
+        self.count_btn = AggregateButton("", _OPTION_ACTIVE)
+        bind(self.count_btn.setText, "dashboard.tool_bar.count_rows")
+        bind(self.count_btn.setToolTip, "dashboard.tool_bar.count_rows_tip")
         self.count_btn.clicked.connect(lambda: self.count_rows_toggled.emit(not self.count_btn.is_active))
         options_row.addWidget(self.count_btn)
 
-        self.distinct_btn = AggregateButton("Distinct", _OPTION_ACTIVE)
-        self.distinct_btn.setToolTip("Show each different row once (SELECT DISTINCT)")
+        self.distinct_btn = AggregateButton("", _OPTION_ACTIVE)
+        bind(self.distinct_btn.setText, "dashboard.tool_bar.distinct")
+        bind(self.distinct_btn.setToolTip, "dashboard.tool_bar.distinct_tip")
         self.distinct_btn.clicked.connect(lambda: self.distinct_toggled.emit(not self.distinct_btn.is_active))
         options_row.addWidget(self.distinct_btn)
 
-        limit_label = QLabel("Limit")
-        limit_label.setStyleSheet("QLabel { color: #475569; font-size: 11px; background: transparent; border: none; }")
+        limit_label = QLabel()
+        bind(limit_label.setText, "dashboard.tool_bar.limit")
+        style(limit_label, "QLabel { color: @text_secondary; font-size: 11px; background: transparent; border: none; }")
         options_row.addWidget(limit_label)
         self.limit_spin = QSpinBox()
         self.limit_spin.setRange(0, 1_000_000)
-        self.limit_spin.setSpecialValueText("all rows")
+        bind(self.limit_spin.setSpecialValueText, "dashboard.tool_bar.all_rows")
         self.limit_spin.setSingleStep(10)
         self.limit_spin.setFixedSize(70, 26)
         self.limit_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)  # typed, or wheel/arrow keys
         self.limit_spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.limit_spin.setToolTip("Keep only the first rows (LIMIT, or TOP on SQL Server). Sort first to pick "
-                                   "which ones.")
-        self.limit_spin.setStyleSheet("""
+        bind(self.limit_spin.setToolTip, "dashboard.tool_bar.limit_tip")
+        style(self.limit_spin, """
             QSpinBox {
-                background-color: #ffffff; color: #334155; border: 1px solid #cbd5e1;
+                background-color: @sunken; color: @text; border: 1px solid @border_strong;
                 border-radius: 5px; padding: 0 2px; font-size: 11px;
             }
-            QSpinBox:focus { border: 1px solid #3b82f6; }
+            QSpinBox:focus { border: 1px solid @focus; }
         """)
         self.limit_spin.valueChanged.connect(self.limit_changed.emit)
         options_row.addWidget(self.limit_spin)
 
-        help_btn = QPushButton("?  Help")
+        help_btn = QPushButton()
+        bind(help_btn.setText, "dashboard.tool_bar.help")
         help_btn.setFixedHeight(26)
         help_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        help_btn.setToolTip("How to build a query on the diagram")
-        help_btn.setStyleSheet(_BUTTON_STYLE.format(**{**_IDLE, "color": "#2563eb", "weight": 600}))
+        bind(help_btn.setToolTip, "dashboard.tool_bar.help_tip")
+        style(help_btn, _BUTTON_STYLE.format(**{**_IDLE, "color": "@accent_text", "weight": 600}))
         help_btn.clicked.connect(self.help_requested.emit)
         help_row.addWidget(help_btn)
 
@@ -161,31 +169,36 @@ class Toolbar(QFrame):
         """Show the query as it is now: the selected column (a QueryColumn or None) and the options"""
         self.target = selected
         if selected is None:
-            self.target_label.setText("pick one in the query  →")
-            self.target_label.setStyleSheet("QLabel { color: #94a3b8; font-size: 11px; background: transparent; "
-                                            "border: none; }")
+            bind(self.target_label.setText, "dashboard.tool_bar.pick_column")
+            style(self.target_label, "QLabel { color: @placeholder; font-size: 11px; background: transparent; "
+                                     "border: none; }")
         else:
+            unbind(self.target_label.setText)
             self.target_label.setText(f"{selected.table}.{selected.column}")
-            self.target_label.setStyleSheet("QLabel { color: #1e293b; font-size: 12px; font-weight: 600; "
-                                            "background: transparent; border: none; }")
+            style(self.target_label, "QLabel { color: @text; font-size: 12px; font-weight: 600; "
+                                     "background: transparent; border: none; }")
 
+        # AGGREGATES gives the meaning in the current language: it is looked up again on every change of it
         for key, btn in self.agg_buttons.items():
-            name, meaning = AGGREGATES[key]
             if selected is None:
                 btn.setEnabled(False)
                 btn.set_active(False)
-                btn.setToolTip(f"{name}: {meaning}.\nSelect a column in the query panel first - click it there.")
+                bind(btn.setToolTip, lambda key=key: tr("dashboard.tool_bar.aggregate_unselected_tip",
+                                                        name=AGGREGATES[key][0], meaning=AGGREGATES[key][1]))
                 continue
             label = f"{selected.table}.{selected.column}"
             problem = aggregate_problem(key, label, selected.type_name)
             btn.setEnabled(problem is None)
             btn.set_active(selected.aggregate == key)
             if problem:
-                btn.setToolTip(problem)
+                bind(btn.setToolTip, lambda key=key, label=label, type_name=selected.type_name:
+                     aggregate_problem(key, label, type_name))
             elif selected.aggregate == key:
-                btn.setToolTip(f"{label} shows {meaning}. Click to show each value again.")
+                bind(btn.setToolTip, lambda key=key, label=label: tr("dashboard.tool_bar.aggregate_active_tip",
+                                                                     label=label, meaning=AGGREGATES[key][1]))
             else:
-                btn.setToolTip(f"Show {meaning} of {label}")
+                bind(btn.setToolTip, lambda key=key, label=label: tr("dashboard.tool_bar.aggregate_tip",
+                                                                     label=label, meaning=AGGREGATES[key][1]))
 
         self.count_btn.set_active(bool(model and model.count_rows))
         self.distinct_btn.set_active(bool(model and model.distinct))

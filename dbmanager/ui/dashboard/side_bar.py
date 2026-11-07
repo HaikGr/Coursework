@@ -1,3 +1,5 @@
+from functools import partial
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
@@ -8,13 +10,16 @@ from PyQt6.QtWidgets import (
 from dbmanager.api import ApiError, describe_connection
 from dbmanager.config import TABLE_PREVIEW_ROWS
 from dbmanager.db import DatabaseError
+from dbmanager.i18n import tr, trn
 from dbmanager.model.change_script import build_change_script, references_to
 from dbmanager.model.table_state import schema_column, schema_details
 from dbmanager.model.sharing import describe_permissions
 from dbmanager.sql import generator as sqlgen
 from dbmanager.ui.common.busy import busy_cursor
+from dbmanager.ui.common.live import bind, unbind
 from dbmanager.ui.common.message_box import confirm, show_styled_message
 from dbmanager.ui.common.style import MENU_STYLE
+from dbmanager.ui.common.theme import color, qss, style
 from dbmanager.ui.dialogs.database_dialog import InputDatabaseWindow
 from dbmanager.ui.dialogs.table_name_dialog import InputTableNameWindow
 from dbmanager.ui.table_editor.table_details_page import TableDetailsPage
@@ -24,18 +29,18 @@ NAME = Qt.ItemDataRole.UserRole + 1
 CONNECTION_ID = Qt.ItemDataRole.UserRole + 2
 
 
-# What the ⋮ menu of a database you own offers: (key, text). There is no Test: opening a database (and ⟳)
-# reads it, which offers to fix its settings when it cannot be reached, and Edit tests what it saves.
+# What the ⋮ menu of a database you own offers: (key, catalogue key of its text). There is no Test: opening a
+# database (and ⟳) reads it, which offers to fix its settings when it cannot be reached, and Edit tests what it saves.
 DATABASE_ACTIONS = [
-    ("edit", "Edit connection…"),
-    ("share", "Share…"),
-    ("delete", "Delete…"),
+    ("edit", "dashboard.sidebar.menu.edit"),
+    ("share", "dashboard.sidebar.menu.share"),
+    ("delete", "dashboard.sidebar.menu.delete"),
 ]
 
 
 def _table_item_text(name, view=False, dropping=False):
     if dropping:
-        return f"  ⊠  {name}  (drop)"
+        return f"  ⊠  {name}  {tr('dashboard.sidebar.drop_mark')}"
     return f"  {'⊡' if view else '⊞'}  {name}"
 
 
@@ -87,31 +92,34 @@ class SideBar(QWidget):
         sidebar_layout.setSpacing(0)
         self.setLayout(sidebar_layout)
         self.setFixedWidth(260)
-        self.setStyleSheet("QWidget { background-color: #FFFFFF; }")
+        style(self, "QWidget { background-color: @surface; }")
 
         # Header
         databases_text = QFrame()
         databases_text.setFixedHeight(44)
-        databases_text.setStyleSheet("""
+        style(databases_text, """
             QFrame {
-                background-color: #fbc840;
+                background-color: @highlight;
                 border: none;
             }
         """)
         dt_layout = QHBoxLayout(databases_text)
         dt_layout.setContentsMargins(16, 0, 16, 0)
-        lbl_db = QLabel("Databases")
-        lbl_db.setStyleSheet("QLabel { color: #744210; font-size: 16px; font-weight: 600; background: transparent; }")
+        lbl_db = QLabel()
+        bind(lbl_db.setText, "dashboard.sidebar.databases")
+        style(lbl_db, "QLabel { color: @on_highlight; font-size: 16px; font-weight: 600; background: transparent; }")
         dt_layout.addWidget(lbl_db)
         dt_layout.addStretch()
 
         refresh_btn = QPushButton("⟳")
-        refresh_btn.setToolTip("Reload the databases from the server, and their tables from the databases")
+        bind(refresh_btn.setToolTip, "dashboard.sidebar.refresh_tip")
         refresh_btn.setFixedSize(28, 28)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        refresh_btn.setStyleSheet("""
-            QPushButton { color: #744210; background: transparent; border: none; font-size: 16px; font-weight: bold; }
-            QPushButton:hover { color: #3777f0; }
+        style(refresh_btn, """
+            QPushButton {
+                color: @on_highlight; background: transparent; border: none; font-size: 16px; font-weight: bold;
+            }
+            QPushButton:hover { color: @accent_text; }
         """)
         refresh_btn.clicked.connect(self.refresh)
         dt_layout.addWidget(refresh_btn)
@@ -122,9 +130,9 @@ class SideBar(QWidget):
         self.db_tree.setIndentation(16)
         self.db_tree.setAnimated(True)
         self.db_tree.setRootIsDecorated(False)
-        self.db_tree.setStyleSheet("""
+        style(self.db_tree, """
             QTreeWidget {
-                background-color: #FFFFFF;
+                background-color: @surface;
                 border: none;
                 outline: none;
                 font-size: 13px;
@@ -133,15 +141,15 @@ class SideBar(QWidget):
                 height: 38px;
                 padding-left: 0px;
                 margin: 0px;
-                color: #2D3748;
+                color: @text;
                 border: none;
             }
             QTreeWidget::item:hover {
-                background-color: #F0F4F8;
+                background-color: @surface_hover;
             }
             QTreeWidget::item:selected {
-                background-color: #3777f0;
-                color: white;
+                background-color: @selection;
+                color: @on_selection;
             }
             QTreeWidget::branch {
                 background: transparent;
@@ -155,33 +163,35 @@ class SideBar(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.db_tree.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        self.add_db_button = QPushButton("+ Add Database")
+        self.add_db_button = QPushButton()
+        bind(self.add_db_button.setText, "common.action.add_database")
         self.add_db_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.add_db_button.setStyleSheet("""
+        style(self.add_db_button, """
             QPushButton {
-                background-color: #F0F4F8;
-                color: #4A5568;
+                background-color: @surface_alt;
+                color: @text_secondary;
                 font-size: 13px;
                 font-weight: 500;
                 border-radius: 6px;
                 padding: 10px;
                 margin: 10px;
-                border: 1px dashed #C6C6C6;
+                border: 1px dashed @border_strong;
             }
             QPushButton:hover {
-                background-color: #E2ECFF;
-                border: 1px dashed #3777f0;
-                color: #3777f0;
+                background-color: @accent_subtle;
+                border: 1px dashed @accent;
+                color: @accent_text;
             }
         """)
         self.add_db_button.clicked.connect(self.add_database)
 
-        logout_button = QPushButton("LOG OUT")
+        logout_button = QPushButton()
+        bind(logout_button.setText, "dashboard.sidebar.log_out")
         logout_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        logout_button.setStyleSheet("""
+        style(logout_button, """
             QPushButton {
-                background-color: #E34A4A;
-                color: white;
+                background-color: @danger;
+                color: @on_danger;
                 font-size: 14px;
                 font-weight: bold;
                 border-radius: 8px;
@@ -190,7 +200,7 @@ class SideBar(QWidget):
                 min-height: 40px;
             }
             QPushButton:hover {
-                background-color: #D33A3A;
+                background-color: @danger_hover;
             }
         """)
         logout_button.clicked.connect(self.logout_requested.emit)
@@ -219,7 +229,7 @@ class SideBar(QWidget):
     def refresh(self):
         """Reload the database list, and the tables of the selected database"""
         if self.active_db in self.databases and self._pending_statements(self.active_db):
-            if not confirm(self, "Reload", "Discard the changes that have not been run yet?"):
+            if not confirm(self, tr("dashboard.sidebar.reload_title"), tr("dashboard.sidebar.reload_discard")):
                 return
         self.reload_databases()
         if self.active_db in self.databases:
@@ -233,8 +243,8 @@ class SideBar(QWidget):
             with busy_cursor():
                 connections = self.api.list_connections()
         except ApiError as error:
-            show_styled_message(self, "Databases", f"Could not load your databases:\n{error}",
-                                QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("dashboard.sidebar.databases"),
+                                tr("dashboard.sidebar.databases_failed", error=error), QMessageBox.Icon.Warning)
             return
 
         for connection in connections:
@@ -256,7 +266,7 @@ class SideBar(QWidget):
         for entry in self.databases.values():
             widget = self.db_tree.itemWidget(entry["item"], 0)
             if widget is not None:
-                widget.setToolTip(self._db_tooltip(entry["connection"]))
+                bind(widget.setToolTip, lambda connection=entry["connection"]: self._db_tooltip(connection))
 
     def _is_owner(self, connection):
         return self.api is not None and connection.get("ownerUserId") == self.api.user_id
@@ -270,12 +280,13 @@ class SideBar(QWidget):
         bold = QFont(self.db_tree.font())
         bold.setBold(True)
         db_item.setFont(0, bold)
-        db_item.setForeground(0, Qt.GlobalColor.white)
+        bind(partial(db_item.setForeground, 0), lambda: color("on_accent"))
         db_item.setBackground(0, Qt.GlobalColor.transparent)
         self.db_tree.addTopLevelItem(db_item)
         self.db_tree.setItemWidget(db_item, 0, self._create_db_widget(connection))
 
-        add_item = QTreeWidgetItem(["     + Add Table"])
+        add_item = QTreeWidgetItem()
+        bind(partial(add_item.setText, 0), lambda: f"     {tr('dashboard.sidebar.add_table')}")
         add_item.setData(0, ROLE, "add_table")
         db_item.addChild(add_item)  # stays the last child: tables are inserted before it
         # Only the owner changes the structure of a database; a guest's login could not run a CREATE TABLE
@@ -301,20 +312,26 @@ class SideBar(QWidget):
 
     def _db_tooltip(self, connection):
         if self._is_owner(connection):
-            return describe_connection(connection) + "\nDouble-click to edit, Delete to remove, Share to invite others"
+            return (describe_connection(connection) + "\n"
+                    + tr("dashboard.sidebar.owner_tip", share=tr("dashboard.sidebar.share")))
         owner, permissions = self.shares.get(connection["id"], (None, []))
-        hint = f"Shared with you by {owner}" if owner else "Shared with you"
         if permissions:
-            hint += f" - you may {describe_permissions(permissions)}"
+            allowed = describe_permissions(permissions)
+            hint = (tr("dashboard.sidebar.shared_by_may", owner=owner, permissions=allowed) if owner
+                    else tr("dashboard.sidebar.shared_may", permissions=allowed))
+        else:
+            hint = tr("dashboard.sidebar.shared_by", owner=owner) if owner else tr("dashboard.sidebar.shared")
         return describe_connection(connection) + "\n" + hint
 
     def _create_db_widget(self, connection):
         shared = not self._is_owner(connection)
+        # Blue when it is yours, sky when it is shared with you; what is on it reads on that colour
+        fill = "info" if shared else "accent"
         widget = QFrame()
-        widget.setToolTip(self._db_tooltip(connection))
-        widget.setStyleSheet(f"""
+        bind(widget.setToolTip, lambda: self._db_tooltip(connection))
+        style(widget, f"""
             QFrame {{
-                background-color: {'#0ea5e9' if shared else '#3777f0'};
+                background-color: @{fill};
                 border-radius: 6px;
                 margin: 2px 8px 2px 0px;
             }}
@@ -324,43 +341,45 @@ class SideBar(QWidget):
         layout.setSpacing(8)
 
         icon = QLabel("☰")
-        icon.setStyleSheet("QLabel { color: white; font-size: 12px; background: transparent; }")
+        style(icon, f"QLabel {{ color: @on_{fill}; font-size: 12px; background: transparent; }}")
         label = QLabel(connection["dbName"])
-        label.setStyleSheet("QLabel { color: white; font-size: 13px; font-weight: 600; background: transparent; }")
+        style(label, f"QLabel {{ color: @on_{fill}; font-size: 13px; font-weight: 600; background: transparent; }}")
         label.setObjectName("db_name_label")
         layout.addWidget(icon)
         layout.addWidget(label)
         layout.addStretch()
         if shared:
-            badge = QLabel("shared")
-            badge.setStyleSheet("QLabel { color: white; font-size: 10px; background: transparent; }")
+            badge = QLabel()
+            bind(badge.setText, "dashboard.sidebar.shared_badge")
+            style(badge, "QLabel { color: @on_info; font-size: 10px; background: transparent; }")
             layout.addWidget(badge)
         else:
-            share = QPushButton("Share")
-            share.setToolTip("Invite other users to this database")
+            share = QPushButton()
+            bind(share.setText, "dashboard.sidebar.share")
+            bind(share.setToolTip, "dashboard.sidebar.share_tip")
             share.setCursor(Qt.CursorShape.PointingHandCursor)
-            share.setStyleSheet("""
+            style(share, """
                 QPushButton {
-                    color: white;
+                    color: @on_accent;
                     background: transparent;
-                    border: 1px solid rgba(255, 255, 255, 0.7);
+                    border: 1px solid @on_accent;
                     border-radius: 4px;
                     padding: 0px 6px;
                     margin: 0px;
                     font-size: 10px;
                 }
-                QPushButton:hover { background: rgba(255, 255, 255, 0.25); }
+                QPushButton:hover { background: @accent_hover; }
             """)
             share.clicked.connect(lambda: self.share_requested.emit(connection))
             layout.addWidget(share)
 
             more = QToolButton()
             more.setText("⋮")
-            more.setToolTip("Edit, share or delete this database")
+            bind(more.setToolTip, "dashboard.sidebar.more_tip")
             more.setCursor(Qt.CursorShape.PointingHandCursor)
-            more.setStyleSheet("""
+            style(more, """
                 QToolButton {
-                    color: white;
+                    color: @on_accent;
                     background: transparent;
                     border: none;
                     border-radius: 4px;
@@ -368,7 +387,7 @@ class SideBar(QWidget):
                     font-size: 15px;
                     font-weight: bold;
                 }
-                QToolButton:hover { background: rgba(255, 255, 255, 0.25); }
+                QToolButton:hover { background: @accent_hover; }
             """)
             more.clicked.connect(lambda: self._open_database_menu(
                 connection["id"], more.mapToGlobal(more.rect().bottomLeft())))
@@ -382,11 +401,11 @@ class SideBar(QWidget):
     def _database_menu(self):
         """The ⋮ menu of a database you own. Its parent is the sidebar, not the row: Delete removes the row."""
         menu = QMenu(self)
-        menu.setStyleSheet(MENU_STYLE)
+        menu.setStyleSheet(qss(MENU_STYLE))
         for key, text in DATABASE_ACTIONS:
             if key == "delete":
                 menu.addSeparator()
-            menu.addAction(text).setData(key)
+            menu.addAction(tr(text, edit_connection=tr("common.action.edit_connection"))).setData(key)
         return menu
 
     def _open_database_menu(self, connection_id, global_pos):
@@ -412,8 +431,6 @@ class SideBar(QWidget):
         created = {}
         dialog = InputDatabaseWindow(
             self,
-            title="New Database",
-            button_text="Connect",
             on_submit=lambda details: created.update(self.db.create_connection(details)),
             on_test=self.db.test_new
         )
@@ -470,13 +487,14 @@ class SideBar(QWidget):
         except (DatabaseError, ApiError) as error:
             if getattr(error, "cancelled", False):
                 return  # asked for the password, and none was given
-            text = f"Could not read the tables of '{entry['connection']['dbName']}':\n{error}"
+            text = tr("dashboard.sidebar.tables_failed", name=entry["connection"]["dbName"], error=error)
             if getattr(error, "unreachable", False) and self._is_owner(entry["connection"]):
                 # Nothing answered: most often a wrong host, port, name or password - offer to fix them
-                if confirm(self, "Database Not Reachable", f"{text}\n\nEdit its connection settings now?"):
+                if confirm(self, tr("dashboard.sidebar.unreachable_title"),
+                           f"{text}\n\n{tr('dashboard.sidebar.edit_settings_now')}"):
                     self.edit_database(connection_id)
             else:
-                show_styled_message(self, "Database Tables", text, QMessageBox.Icon.Warning)
+                show_styled_message(self, tr("dashboard.sidebar.tables_title"), text, QMessageBox.Icon.Warning)
             return
 
         entry["schema_loaded"] = True
@@ -517,8 +535,8 @@ class SideBar(QWidget):
             with busy_cursor():
                 self.db.sync_guests(connection)
         except (DatabaseError, ApiError) as error:
-            show_styled_message(self, "Sharing", f"The logins of the people you share '{connection['dbName']}' "
-                                                 f"with could not be brought up to date:\n{error}",
+            show_styled_message(self, tr("dashboard.sidebar.sharing_title"),
+                                tr("dashboard.sidebar.guests_sync_failed", name=connection["dbName"], error=error),
                                 QMessageBox.Icon.Warning)
 
     def _reload_database(self, connection_id):
@@ -558,10 +576,8 @@ class SideBar(QWidget):
         if not count:
             return
         name = self.databases[self.active_db]["connection"]["dbName"]
-        if not confirm(self, "Discard Changes",
-                       f"Discard {'the' if count == 1 else 'all ' + str(count)} unsaved "
-                       f"change{'s' if count != 1 else ''} to '{name}'?\n"
-                       "Tables and rows go back to what the database holds."):
+        if not confirm(self, tr("dashboard.sidebar.discard_changes_title"),
+                       trn("dashboard.sidebar.discard_all", count, name=name)):
             return
         self._reload_database(self.active_db)
 
@@ -574,14 +590,16 @@ class SideBar(QWidget):
             return
         state = page.state
         if not state.live:
-            if not confirm(self, "Discard Table", f"Remove the new table '{table_name}'? It was never saved."):
+            if not confirm(self, tr("dashboard.sidebar.discard_table_title"),
+                           tr("dashboard.sidebar.discard_new_table", name=table_name)):
                 return
             if item is not None:
                 item.parent().removeChild(item)
             self._remove_table_page(key)
             self._refresh_change_script(connection_id)
             return
-        if not confirm(self, "Discard Changes", f"Discard the unsaved changes to '{table_name}'?"):
+        if not confirm(self, tr("dashboard.sidebar.discard_changes_title"),
+                       tr("dashboard.sidebar.discard_table_changes", name=table_name)):
             return
 
         # Renames were carried into the known foreign keys and the diagram: carry them back
@@ -601,7 +619,8 @@ class SideBar(QWidget):
         if state.rows_loaded:
             self._load_rows(connection_id, fresh)
         if item is not None and state.pending_drop:
-            item.setText(0, _table_item_text(table_name, state.view))
+            bind(partial(item.setText, 0), lambda view=state.view: _table_item_text(table_name, view))
+            unbind(partial(item.setForeground, 0))
             item.setData(0, Qt.ItemDataRole.ForegroundRole, None)
 
         if connection_id == self.active_db:
@@ -671,7 +690,7 @@ class SideBar(QWidget):
         table_item.setData(0, ROLE, "table")
         table_item.setData(0, NAME, table_name)
         if view:
-            table_item.setToolTip(0, "View - read-only")
+            bind(partial(table_item.setToolTip, 0), "dashboard.sidebar.view_tip")
         return table_item
 
     def _find_table_item(self, connection_id, table_name):
@@ -750,7 +769,8 @@ class SideBar(QWidget):
         except (DatabaseError, ApiError) as error:
             if getattr(error, "cancelled", False):
                 return
-            show_styled_message(self, "Table Data", f"Could not read the rows of '{page.table_name}':\n{error}",
+            show_styled_message(self, tr("dashboard.sidebar.rows_title"),
+                                tr("dashboard.sidebar.rows_failed", name=page.table_name, error=error),
                                 QMessageBox.Icon.Warning)
             return
         page.set_rows(result.get("columns") or [], result.get("rows") or [], truncated=result.get("truncated", False))
@@ -794,8 +814,8 @@ class SideBar(QWidget):
         existing = {db_item.child(i).data(0, NAME).lower() for i in range(db_item.childCount())
                     if db_item.child(i).data(0, ROLE) == "table"}
         if table_name.lower() in existing:
-            show_styled_message(self, "Duplicate Table", f"Table '{table_name}' already exists!",
-                                QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("dashboard.sidebar.duplicate_title"),
+                                tr("dashboard.sidebar.duplicate", name=table_name), QMessageBox.Icon.Warning)
             return
 
         db_item.insertChild(db_item.childCount() - 1, self._create_table_item(table_name))
@@ -813,17 +833,16 @@ class SideBar(QWidget):
         entry = self.databases[connection_id]
         item = entry["item"]
         if not self._is_owner(entry["connection"]):
-            show_styled_message(self, "Edit Database",
-                                "This database is shared with you - only its owner can change it.",
-                                QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("dashboard.sidebar.edit_database_title"),
+                                tr("dashboard.sidebar.edit_not_owner"), QMessageBox.Icon.Warning)
             return
 
         updated = {}
         dialog = InputDatabaseWindow(
             self,
-            title="Edit Database",
+            title=tr("dashboard.sidebar.edit_database_title"),
             connection=entry["connection"],
-            button_text="Save",
+            button_text=tr("common.save"),
             on_submit=lambda details: updated.update(self.db.update_connection(connection_id, details)),
             on_test=lambda details: self.db.test_saved(entry["connection"], details)
         )
@@ -878,16 +897,16 @@ class SideBar(QWidget):
         connection_id = item.parent().data(0, CONNECTION_ID)
         page = self.page_map.get((connection_id, item.data(0, NAME)))
         menu = QMenu(self)
-        menu.setStyleSheet(MENU_STYLE)
-        menu.addAction("Open").triggered.connect(lambda: self.on_tree_click(item))
+        menu.setStyleSheet(qss(MENU_STYLE))
+        menu.addAction(tr("dashboard.sidebar.open")).triggered.connect(lambda: self.on_tree_click(item))
         if self._is_owner(self.databases[connection_id]["connection"]):
-            kind = "view" if page is not None and page.state.view else "table"
+            view = page is not None and page.state.view
             if page is not None and page.state.pending_drop:
-                text = f"Keep {kind}"
+                text = tr("dashboard.sidebar.keep_view" if view else "dashboard.sidebar.keep_table")
             elif page is not None and not page.state.live:
-                text = "Delete table…"
+                text = tr("dashboard.sidebar.delete_table")
             else:
-                text = f"Drop {kind}…"
+                text = tr("dashboard.sidebar.drop_view" if view else "dashboard.sidebar.drop_table")
             menu.addSeparator()
             menu.addAction(text).triggered.connect(lambda: self._delete_table(item))
         menu.exec(self.db_tree.viewport().mapToGlobal(pos))
@@ -899,7 +918,8 @@ class SideBar(QWidget):
         if page is not None and page.state.live:
             self._toggle_drop(connection_id, item, page)
             return
-        if not confirm(self, "Delete Table", f"Are you sure you want to delete '{table_name}'?"):
+        if not confirm(self, tr("dashboard.sidebar.delete_table_title"),
+                       tr("dashboard.sidebar.delete_table_question", name=table_name)):
             return
         item.parent().removeChild(item)
         self._remove_table_page((connection_id, table_name))
@@ -910,16 +930,13 @@ class SideBar(QWidget):
         """Remove a database you own from the account (⋮ → Delete, or the Delete key)"""
         connection = self.databases[connection_id]["connection"]
         if not self._is_owner(connection):
-            show_styled_message(self, "Delete Database",
-                                "This database is shared with you - only its owner can remove it.",
-                                QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("dashboard.sidebar.delete_database_title"),
+                                tr("dashboard.sidebar.delete_not_owner"), QMessageBox.Icon.Warning)
             return
         unsaved = len(self._pending_statements(connection_id))
-        if not confirm(self, "Delete Database",
-                       f"Remove '{connection['dbName']}' from your account?\n"
-                       "Only the saved connection goes, and the logins made in the database for the people "
-                       "you shared it with: they lose access. Nothing else in the database is touched."
-                       + (f"\n{unsaved} unsaved change{'s' if unsaved != 1 else ''} will be lost." if unsaved else "")):
+        if not confirm(self, tr("dashboard.sidebar.delete_database_title"),
+                       tr("dashboard.sidebar.delete_database_question", name=connection["dbName"])
+                       + ("\n" + trn("dashboard.sidebar.unsaved_lost", unsaved) if unsaved else "")):
             return
         if not self._drop_guest_logins(connection):
             return
@@ -927,7 +944,8 @@ class SideBar(QWidget):
             with busy_cursor():
                 self.db.delete_connection(connection_id)
         except ApiError as error:
-            show_styled_message(self, "Delete Database", str(error), QMessageBox.Icon.Warning)
+            show_styled_message(self, tr("dashboard.sidebar.delete_database_title"), str(error),
+                                QMessageBox.Icon.Warning)
             return
         self._remove_database(connection_id)
 
@@ -940,40 +958,41 @@ class SideBar(QWidget):
                 self.db.drop_guest_logins(connection)
             return True
         except (DatabaseError, ApiError) as error:
-            return confirm(self, "Delete Database",
-                           f"The logins made for the people you shared '{connection['dbName']}' with could not be "
-                           f"removed from the database:\n{error}\n\nRemove the connection anyway? Those logins then "
-                           "stay in the database until you drop them yourself (they are called dbm_u…).")
+            return confirm(self, tr("dashboard.sidebar.delete_database_title"),
+                           tr("dashboard.sidebar.drop_guests_failed", name=connection["dbName"], error=error))
 
     def _toggle_drop(self, connection_id, item, page):
         """Mark a table that exists in the database to be dropped on the next Run (or unmark it)"""
         if not self._is_owner(self.databases[connection_id]["connection"]):
-            show_styled_message(self, "Shared Database", "Only the owner of a shared database can drop its tables.")
+            show_styled_message(self, tr("dashboard.sidebar.shared_database_title"),
+                                tr("dashboard.sidebar.owner_only_drop"))
             return
         state = page.state
-        kind = "view" if state.view else "table"
         if state.pending_drop:
-            if not confirm(self, f"Keep {kind.title()}", f"Keep '{state.name}' after all?"):
+            if not confirm(self, tr("dashboard.sidebar.keep_view_title" if state.view
+                                    else "dashboard.sidebar.keep_table_title"),
+                           tr("dashboard.sidebar.keep_question", name=state.name)):
                 return
             state.pending_drop = False
-            item.setText(0, _table_item_text(state.name, state.view))
+            bind(partial(item.setText, 0), lambda name=state.name, view=state.view: _table_item_text(name, view))
+            unbind(partial(item.setForeground, 0))
             item.setData(0, Qt.ItemDataRole.ForegroundRole, None)
             if connection_id == self.active_db and state.columns:
                 self.diagram.add_table_card(state.name, state.columns)
         else:
-            details = "" if state.view else " and all its rows"
-            text = f"Drop '{state.name}'{details} from the database?\nIt is dropped when you click Run Query."
+            text = tr("dashboard.sidebar.drop_view_question" if state.view else "dashboard.sidebar.drop_table_question",
+                      name=state.name, run_query=tr("common.action.run_query"))
             pointing = [f"{child}.{', '.join(constraint['columns'])}"
                         for child, constraint in references_to(self._table_states(connection_id), state.name)
                         if not self._table_states(connection_id)[child].pending_drop]
             if pointing:
-                text += ("\n\nThese fields point at it - their foreign keys are dropped first (the fields and "
-                         "their values stay):\n  " + "\n  ".join(pointing))
-            if not confirm(self, f"Drop {kind.title()}", text):
+                text += "\n\n" + tr("dashboard.sidebar.referenced_by") + "\n  " + "\n  ".join(pointing)
+            if not confirm(self, tr("dashboard.sidebar.drop_view_title" if state.view
+                                    else "dashboard.sidebar.drop_table_title"), text):
                 return
             state.pending_drop = True
-            item.setText(0, _table_item_text(state.name, dropping=True))
-            item.setForeground(0, Qt.GlobalColor.red)
+            bind(partial(item.setText, 0), lambda name=state.name: _table_item_text(name, dropping=True))
+            bind(partial(item.setForeground, 0), lambda: color("danger_text"))
             if connection_id == self.active_db:
                 self.diagram.remove_table_card(state.name)
                 if self.sql_builder:
