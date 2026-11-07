@@ -5,10 +5,12 @@ from PyQt6.QtWidgets import (
 )
 
 from dbmanager.api import DB_TYPES, ApiError
+from dbmanager.i18n import tr
 from dbmanager.model.sharing import describe_permissions, received_groups
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.icons import app_icon
 from dbmanager.ui.common.dark_dialog import DIALOG_STYLE, button, cell, label, show_status
+from dbmanager.ui.common.theme import qss
 
 DB_TYPE_LABELS = {value: text for value, text, _ in DB_TYPES}
 
@@ -21,22 +23,23 @@ class InvitationsDialog(QDialog):
         super().__init__(parent)
         self.api = api
         self.changed = False
-        self.setWindowTitle("Invitations")
+        self.setWindowTitle(tr("sharing.invitations.title"))
         self.setWindowIcon(app_icon())
         self.resize(640, 420)
-        self.setStyleSheet(DIALOG_STYLE)
+        self.setStyleSheet(qss(DIALOG_STYLE))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(8)
 
-        layout.addWidget(label("Invitations", "heading"))
-        layout.addWidget(label("Databases other users share with you. Accepting adds the database to your list; "
-                               "what you may do there is what its owner offered.", "note", wrap=True))
+        layout.addWidget(label(tr("sharing.invitations.title"), "heading"))
+        layout.addWidget(label(tr("sharing.invitations.intro"), "note", wrap=True))
         layout.addSpacing(6)
 
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["From", "Database", "You may", ""])
+        self.table.setHorizontalHeaderLabels([tr("sharing.invitations.column.from"),
+                                              tr("sharing.invitations.column.database"),
+                                              tr("sharing.invitations.column.you_may"), ""])
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(40)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -46,7 +49,7 @@ class InvitationsDialog(QDialog):
         for column in (0, 2, 3):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.table, 1)
-        self.empty = label("No invitations right now.", "note")
+        self.empty = label(tr("sharing.invitations.empty"), "note")
         layout.addWidget(self.empty)
 
         self.status = label("", wrap=True)
@@ -54,7 +57,7 @@ class InvitationsDialog(QDialog):
 
         close_row = QHBoxLayout()
         close_row.addStretch()
-        close_row.addWidget(button("Close", on_click=self.reject))
+        close_row.addWidget(button(tr("common.close"), on_click=self.reject))
         layout.addLayout(close_row)
 
         self._load()
@@ -64,7 +67,7 @@ class InvitationsDialog(QDialog):
             with busy_cursor():
                 invitations = self.api.list_invitations()
         except ApiError as error:
-            show_status(self.status, f"Could not load your invitations:\n{error}", error=True)
+            show_status(self.status, tr("sharing.invitations.load_failed", error=error), error=True)
             invitations = []
         groups = received_groups(invitations, self.api.user_id)
 
@@ -81,10 +84,12 @@ class InvitationsDialog(QDialog):
             self.table.setItem(row, 2, QTableWidgetItem(describe_permissions(permissions)))
             if group["status"] == "PENDING":
                 self.table.setCellWidget(row, 3, cell(
-                    button("Accept", "small_primary", lambda _=False, g=group: self.answer(g, "ACCEPTED")),
-                    button("Decline", "small", lambda _=False, g=group: self.answer(g, "DECLINED"))))
+                    button(tr("sharing.invitations.accept"), "small_primary",
+                           lambda _=False, g=group: self.answer(g, "ACCEPTED")),
+                    button(tr("sharing.invitations.decline"), "small",
+                           lambda _=False, g=group: self.answer(g, "DECLINED"))))
             else:
-                self.table.setItem(row, 3, QTableWidgetItem("accepted"))
+                self.table.setItem(row, 3, QTableWidgetItem(tr("sharing.invitations.accepted")))
         self.table.setVisible(bool(groups))
         self.empty.setVisible(not groups)
 
@@ -96,7 +101,7 @@ class InvitationsDialog(QDialog):
         except ApiError as error:
             show_status(self.status, str(error), error=True)
         else:
-            verb = "accepted" if status == "ACCEPTED" else "declined"
-            show_status(self.status, f"You {verb} {group['fromUsername']}'s invitation to '{group['dbName']}'.")
+            key = "sharing.invitations.you_accepted" if status == "ACCEPTED" else "sharing.invitations.you_declined"
+            show_status(self.status, tr(key, username=group['fromUsername'], name=group['dbName']))
         self.changed = True  # even a half-answered group changed something
         self._load()

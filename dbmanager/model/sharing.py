@@ -3,14 +3,32 @@
 An invitation grants one permission on one database, so sharing SELECT and INSERT with someone is two
 invitations. The screens show them per person and database instead."""
 
+from collections.abc import Sequence
+
+from dbmanager.i18n import tr
+
+# The names in the API, in the order they are offered
+_PERMISSION_NAMES = ("SELECT_ROLE", "INSERT_ROLE", "UPDATE_ROLE", "DELETE_ROLE")
+_ORDER = {name: index for index, name in enumerate(_PERMISSION_NAMES)}
+
+
+def permission_description(name):
+    """What a permission lets a shared user do, in the current language: INSERT_ROLE -> 'add rows'"""
+    return tr(f"model.sharing.permissions.{name.lower()}")
+
+
+class _Permissions(Sequence):
+    """PERMISSIONS, made on each lookup so that the descriptions are in the current language"""
+
+    def __getitem__(self, index):
+        return [(name, permission_description(name)) for name in _PERMISSION_NAMES][index]
+
+    def __len__(self):
+        return len(_PERMISSION_NAMES)
+
+
 # (name in the API, what a shared user may then do) in the order they are offered
-PERMISSIONS = [
-    ("SELECT_ROLE", "read the tables and their rows"),
-    ("INSERT_ROLE", "add rows"),
-    ("UPDATE_ROLE", "change rows"),
-    ("DELETE_ROLE", "delete rows"),
-]
-_ORDER = {name: index for index, (name, _) in enumerate(PERMISSIONS)}
+PERMISSIONS = _Permissions()
 
 # Invitations still in force: waiting for an answer, or granting access
 ACTIVE = ("PENDING", "ACCEPTED")
@@ -39,9 +57,11 @@ def received_groups(invitations, user_id):
         key = (invitation["status"], invitation.get("fromUserId"), invitation.get("dbConnectionId"))
         group = groups.setdefault(key, {
             "status": invitation["status"],
-            "fromUsername": invitation.get("fromUsername") or f"user {invitation.get('fromUserId')}",
+            "fromUsername": invitation.get("fromUsername") or tr("model.sharing.unknown_user",
+                                                                 id=invitation.get("fromUserId")),
             "dbConnectionId": invitation.get("dbConnectionId"),
-            "dbName": invitation.get("dbName") or f"database {invitation.get('dbConnectionId')}",
+            "dbName": invitation.get("dbName") or tr("model.sharing.unknown_database",
+                                                     id=invitation.get("dbConnectionId")),
             "dbType": invitation.get("dbType") or "",
             "invitations": [],
         })

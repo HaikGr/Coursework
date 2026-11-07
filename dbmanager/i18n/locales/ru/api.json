@@ -1,0 +1,27 @@
+{
+  "no_token": "Сервер не вернул токен сеанса.",
+  "bad_address": "«{address}» — недопустимый адрес сервера: он должен начинаться с http:// или https:// (проверьте DB_MANAGER_API_URL).",
+  "unreachable": "Не удаётся связаться с сервером {address}.\nЗапущен ли сервер? ({reason})",
+  "timeout": "Сервер слишком долго не отвечает.",
+  "connection_lost": "Соединение с сервером прервано ({reason}).",
+  "not_json": "Сервер прислал ответ не в формате JSON.",
+  "http_error": "Сервер вернул ошибку (HTTP {status}).",
+  "session_expired": "Сеанс истёк. Войдите снова.",
+  "fields": {
+    "username": "Имя пользователя",
+    "email": "Email",
+    "password": "Пароль",
+    "newPassword": "Новый пароль",
+    "code": "Код",
+    "host": "Хост",
+    "port": "Порт",
+    "dbName": "Имя базы данных",
+    "dbUsername": "Пользователь БД",
+    "dbPassword": "Пароль БД",
+    "dbType": "Тип базы данных",
+    "connectedEmail": "Email",
+    "toUsername": "Получатель",
+    "action": "Действие",
+    "detail": "Подробности"
+  }
+}

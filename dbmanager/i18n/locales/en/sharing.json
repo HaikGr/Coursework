@@ -1,0 +1,67 @@
+{
+  "share": {
+    "window_title": "Share {name}",
+    "heading": "Share '{name}'",
+    "username": "Username",
+    "username_placeholder": "Who should get access?",
+    "they_may": "They may",
+    "permission_option": "{permission}  -  {allows}",
+    "permissions_note": "Without SELECT they cannot see the tables at all. Changing the structure (CREATE, ALTER, DROP) stays with you. They get a database login of their own that holds just this, so your password never leaves this computer.",
+    "send": "Send invitation",
+    "who_has_access": "Who has access",
+    "column": {
+      "user": "User",
+      "permission": "Permission",
+      "status": "Status"
+    },
+    "status": {
+      "pending": "waiting for an answer",
+      "accepted": "has access",
+      "declined": "declined"
+    },
+    "nobody": "Nobody yet.",
+    "revoke": "Revoke",
+    "load_failed": "Could not load the sharing details:\n{error}",
+    "reload_failed": "Could not reload who has access:\n{error}",
+    "no_username": "Enter the username of the person to invite.",
+    "no_permission": "Tick at least one permission.",
+    "not_shared": "Nothing was shared with {username}: {error}",
+    "invited": "Invited {username} to {permissions}. They accept it under Invitations.",
+    "revoke_title": "Revoke Access",
+    "revoke_question": "Take {permission} on '{name}' away from {username}?",
+    "revoked": "{username} no longer has {permission}.",
+    "revoked_not_in_database": "{username} no longer has {permission} here, but the database still allows it: {error}\nIt is taken away the next time you open the database."
+  },
+  "invitations": {
+    "title": "Invitations",
+    "intro": "Databases other users share with you. Accepting adds the database to your list; what you may do there is what its owner offered.",
+    "column": {
+      "from": "From",
+      "database": "Database",
+      "you_may": "You may"
+    },
+    "empty": "No invitations right now.",
+    "accept": "Accept",
+    "decline": "Decline",
+    "accepted": "accepted",
+    "load_failed": "Could not load your invitations:\n{error}",
+    "you_accepted": "You accepted {username}'s invitation to '{name}'.",
+    "you_declined": "You declined {username}'s invitation to '{name}'."
+  },
+  "premium": {
+    "title": "Premium",
+    "intro_active": "Premium is active, verified with {email}.\nTo connect a different address, verify it below.",
+    "intro_registered": "Premium lets you share your databases with other users.\nSend a code to the address you registered with - or type another one.",
+    "intro_new": "Premium lets you share your databases with other users.\nVerify an email address to upgrade - it is not used for anything else.",
+    "email": "Email address",
+    "email_placeholder": "you@example.com",
+    "send_code": "Send code",
+    "code": "Verification code",
+    "code_placeholder": "6 digits from the email",
+    "confirm": "Confirm",
+    "no_email": "Please enter an email address.",
+    "code_sent": "A code was sent to {email}.",
+    "bad_code": "The code is the six digits from the email.",
+    "upgraded": "Your account is premium now.\nUse Share next to one of your databases to invite someone."
+  }
+}

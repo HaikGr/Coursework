@@ -2,25 +2,36 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout
 
 from dbmanager.api import DB_TYPES, DEFAULT_PORTS, ApiError, parse_port
+from dbmanager.db import DatabaseError
+from dbmanager.i18n import tr
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.icons import app_icon
 from dbmanager.ui.common.message_box import confirm, show_styled_message
+from dbmanager.ui.common.dark_dialog import settle_enter_key
+from dbmanager.ui.common.style import COMBO_ARROW
+from dbmanager.ui.common.theme import qss
 
 
 class InputDatabaseWindow(QDialog):
-    """Dark themed dialog for registering or editing a database connection.
+    """Dialog for registering or editing a database connection, in the current theme.
 
     on_submit(details) is called when the user confirms; if it raises ApiError the
     message is shown and the dialog stays open so the input can be corrected.
 
-    on_test(details) asks the server whether it can reach the database with these details, returning
-    what answered or raising ApiError. With it the dialog gets a Test button, and settings the server
-    cannot reach are only saved when the user insists.
+    on_test(details) connects to the database from this computer with these details, returning what
+    answered or raising DatabaseError. With it the dialog gets a Test button, and settings nothing answers
+    on are only saved when the user insists.
+
+    The password goes into details as dbPassword; the server stores it encrypted.
+
+    title and button_text are shown as given (already translated); left out, they say New Database and Connect.
     """
 
-    def __init__(self, parent=None, title="New Database", connection=None, button_text="Connect", on_submit=None,
+    def __init__(self, parent=None, title=None, connection=None, button_text=None, on_submit=None,
                  on_test=None):
         super().__init__(parent)
+        title = title or tr("dialogs.database.new_title")
+        button_text = button_text or tr("dialogs.database.connect")
         self.setWindowTitle(title)
         self.setWindowIcon(app_icon())
         self.setFixedSize(420, 580)
@@ -33,37 +44,37 @@ class InputDatabaseWindow(QDialog):
         self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
 
-        # Dark theme styling
-        self.setStyleSheet("""
+        # Theme styling
+        self.setStyleSheet(qss(COMBO_ARROW + """
             QDialog {
-                background-color: #1e293b;
-                border: 2px solid #0ea5e9;
+                background-color: @surface;
+                border: 2px solid @accent;
                 border-radius: 16px;
             }
             QLabel {
-                color: #94a3b8;
+                color: @text_secondary;
                 font-size: 12px;
                 font-weight: 600;
                 background: transparent;
             }
             QLineEdit, QComboBox {
-                background-color: #0f172a;
-                border: 2px solid #334155;
+                background-color: @sunken;
+                border: 2px solid @border_strong;
                 border-radius: 10px;
                 padding: 8px 14px;
                 font-size: 14px;
-                color: #f1f5f9;
+                color: @text;
             }
             QLineEdit:focus, QComboBox:focus {
-                border: 2px solid #0ea5e9;
+                border: 2px solid @focus;
             }
-            QComboBox::drop-down { border: none; width: 24px; }
             QComboBox QAbstractItemView {
-                background-color: #0f172a;
-                color: #f1f5f9;
-                selection-background-color: #0ea5e9;
+                background-color: @sunken;
+                color: @text;
+                selection-background-color: @selection;
+                selection-color: @on_selection;
             }
-        """)
+        """))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
@@ -71,12 +82,14 @@ class InputDatabaseWindow(QDialog):
 
         # Header
         header = QLabel(f"{title}")
-        header.setStyleSheet("""
-            color: #f1f5f9;
-            font-size: 20px;
-            font-weight: bold;
-            background: transparent;
-        """)
+        header.setStyleSheet(qss("""
+            QLabel {
+                color: @text;
+                font-size: 20px;
+                font-weight: bold;
+                background: transparent;
+            }
+        """))
         layout.addWidget(header)
         layout.addSpacing(8)
 
@@ -85,7 +98,7 @@ class InputDatabaseWindow(QDialog):
         for value, label, _ in DB_TYPES:
             self.type_combo.addItem(label, value)
         self.type_combo.setFixedHeight(40)
-        self._add_field(layout, "Database Type", self.type_combo)
+        self._add_field(layout, tr("dialogs.database.type"), self.type_combo)
 
         # Host + Port
         self.host_input = self._line_edit("localhost")
@@ -93,11 +106,11 @@ class InputDatabaseWindow(QDialog):
         self.port_input.setFixedWidth(110)
         host_col = QVBoxLayout()
         host_col.setSpacing(6)
-        host_col.addWidget(QLabel("Host"))
+        host_col.addWidget(QLabel(tr("dialogs.database.host")))
         host_col.addWidget(self.host_input)
         port_col = QVBoxLayout()
         port_col.setSpacing(6)
-        port_col.addWidget(QLabel("Port"))
+        port_col.addWidget(QLabel(tr("dialogs.database.port")))
         port_col.addWidget(self.port_input)
         host_row = QHBoxLayout()
         host_row.setSpacing(12)
@@ -107,16 +120,15 @@ class InputDatabaseWindow(QDialog):
         layout.addSpacing(4)
 
         self.name_input = self._line_edit("my_database")
-        self._add_field(layout, "Database Name", self.name_input)
+        self._add_field(layout, tr("dialogs.database.name"), self.name_input)
 
-        self.user_input = self._line_edit("Database user")
-        self._add_field(layout, "Username", self.user_input)
+        self.user_input = self._line_edit(tr("dialogs.database.user_placeholder"))
+        self._add_field(layout, tr("dialogs.database.username"), self.user_input)
 
-        self.password_input = self._line_edit(
-            "Leave empty to keep the current password" if self.editing else "Database password")
+        self.password_input = self._line_edit(tr("dialogs.database.keep_password") if self.editing
+                                              else tr("dialogs.database.password_placeholder"))
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.returnPressed.connect(self.accept)
-        self._add_field(layout, "Password", self.password_input)
+        self._add_field(layout, tr("dialogs.database.password"), self.password_input)
 
         if connection:
             index = self.type_combo.findData(connection.get("dbType"))
@@ -143,67 +155,68 @@ class InputDatabaseWindow(QDialog):
         btn_layout.setSpacing(12)
 
         if on_test:
-            test_btn = QPushButton("Test")
-            test_btn.setToolTip("Check that the server can reach this database, without saving anything")
+            test_btn = QPushButton(tr("dialogs.database.test"))
+            test_btn.setToolTip(tr("dialogs.database.test_tip"))
             test_btn.setFixedSize(90, 42)
             test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            test_btn.setStyleSheet("""
+            test_btn.setStyleSheet(qss("""
                 QPushButton {
                     background-color: transparent;
-                    color: #38bdf8;
-                    border: 2px solid #0ea5e9;
+                    color: @accent_text;
+                    border: 2px solid @accent;
                     border-radius: 10px;
                     font-size: 14px;
                     font-weight: 500;
                 }
                 QPushButton:hover {
-                    background-color: #0c4a6e;
-                    color: #f1f5f9;
+                    background-color: @accent_subtle;
+                    color: @text;
                 }
-            """)
+            """))
             test_btn.clicked.connect(self.test_connection)
             btn_layout.addWidget(test_btn)
 
-        cancel_btn = QPushButton("Cancel")
+        cancel_btn = QPushButton(tr("common.cancel"))
         cancel_btn.setFixedSize(100, 42)
         cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel_btn.setStyleSheet("""
+        cancel_btn.setStyleSheet(qss("""
             QPushButton {
-                background-color: #334155;
-                color: #94a3b8;
+                background-color: @surface_raised;
+                color: @text_secondary;
                 border: none;
                 border-radius: 10px;
                 font-size: 14px;
                 font-weight: 500;
             }
             QPushButton:hover {
-                background-color: #475569;
-                color: #f1f5f9;
+                background-color: @surface_pressed;
+                color: @text;
             }
-        """)
+        """))
         cancel_btn.clicked.connect(self.reject)
 
         ok_btn = QPushButton(button_text)
         ok_btn.setFixedSize(140, 42)
         ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        ok_btn.setStyleSheet("""
+        ok_btn.setStyleSheet(qss("""
             QPushButton {
-                background-color: #0ea5e9;
-                color: white;
+                background-color: @accent;
+                color: @on_accent;
                 border: none;
                 border-radius: 10px;
                 font-size: 14px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #38bdf8;
+                background-color: @accent_hover;
             }
-        """)
+        """))
         ok_btn.clicked.connect(self.accept)
 
         btn_layout.addStretch()
         btn_layout.addWidget(cancel_btn)
         btn_layout.addWidget(ok_btn)
+        settle_enter_key(self, default=ok_btn)  # Enter in any field connects (not Test, not twice)
         layout.addLayout(btn_layout)
 
         self.host_input.setFocus()
@@ -229,7 +242,7 @@ class InputDatabaseWindow(QDialog):
         self._last_default_port = new_default
 
     def _error(self, text):
-        show_styled_message(self, "Database", text, QMessageBox.Icon.Warning)
+        show_styled_message(self, tr("dialogs.database.error_title"), text, QMessageBox.Icon.Warning)
 
     def _details(self):
         """The form as API details, or None (after saying why) when something is missing"""
@@ -240,14 +253,14 @@ class InputDatabaseWindow(QDialog):
         password = self.password_input.text()
 
         if not host or not name or not user:
-            self._error("Please fill in host, database name and username.")
+            self._error(tr("dialogs.database.missing"))
             return None
         port = parse_port(port)
         if port is None:
-            self._error("Port must be a number between 1 and 65535.")
+            self._error(tr("dialogs.database.bad_port"))
             return None
         if not password and not self.editing:
-            self._error("Please enter the database password.")
+            self._error(tr("dialogs.database.no_password"))
             return None
 
         details = {
@@ -262,17 +275,19 @@ class InputDatabaseWindow(QDialog):
         return details
 
     def _test(self, details):
-        """Ask the server to connect with these details. Returns the ApiError, or None when it worked;
-        either way the outcome is shown above the buttons."""
+        """Connect with these details. Returns the error, or None when it worked; either way the outcome
+        is shown above the buttons."""
         try:
             with busy_cursor():
                 message = self.on_test(details)
-        except ApiError as error:
+        except (DatabaseError, ApiError) as error:
             self.test_status.setText(f"✗ {error}")
-            self.test_status.setStyleSheet("color: #fca5a5; font-size: 12px; font-weight: 500; background: transparent;")
+            self.test_status.setStyleSheet(qss("QLabel { color: @danger_text; font-size: 12px; font-weight: 500; "
+                                               "background: transparent; }"))
             return error
-        self.test_status.setText(f"✓ {message or 'Connected.'}")
-        self.test_status.setStyleSheet("color: #86efac; font-size: 12px; font-weight: 500; background: transparent;")
+        self.test_status.setText(f"✓ {message or tr('dialogs.database.connected')}")
+        self.test_status.setStyleSheet(qss("QLabel { color: @success_text; font-size: 12px; font-weight: 500; "
+                                           "background: transparent; }"))
         return None
 
     def test_connection(self):
@@ -287,11 +302,11 @@ class InputDatabaseWindow(QDialog):
 
         if self.on_test:
             error = self._test(details)
-            # 502: the settings are fine as far as the server can tell, but nothing answered - perhaps
-            # only for now. Anything else (a refused value, a lost session) would fail the save too.
-            if error is not None and (error.status != 502 or not confirm(
-                    self, "Database Not Reachable",
-                    f"The server could not connect to this database:\n{error}\n\nSave these settings anyway?")):
+            # Nothing answered: perhaps only for now (the database is off, or not on this network).
+            # Anything else (a database type this app cannot open, a lost session) would fail the save too.
+            if error is not None and (not getattr(error, "unreachable", False) or not confirm(
+                    self, tr("dialogs.database.unreachable_title"),
+                    tr("dialogs.database.unreachable", error=error))):
                 return
 
         if self.on_submit:

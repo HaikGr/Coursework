@@ -1,23 +1,28 @@
-"""Dark themed message boxes used by the dashboard and its dialogs.
+"""The app's message boxes, in the current theme and language.
 
 Every child sets its own background: a box inherits the style sheets of the window it belongs to, and
-the dashboard's page background would otherwise turn up behind the light text."""
+the dashboard's page background would otherwise turn up behind the text. Qt names the buttons, in the
+current language (see preferences.QtTexts).
+
+A box is modal and made for one question, so it takes the theme and the language as they are when it opens."""
 
 from PyQt6.QtWidgets import QMessageBox
 
+from dbmanager.ui.common.theme import qss
+
 _MESSAGE_STYLE = """
     QMessageBox {
-        background-color: #1f2937;
+        background-color: @surface;
     }
     QMessageBox QLabel {
-        color: #f3f4f6;
+        color: @text;
         font-size: 14px;
         min-width: 250px;
         background: transparent;
     }
     QPushButton {
-        background-color: #3777f0;
-        color: white;
+        background-color: @accent;
+        color: @on_accent;
         border: none;
         border-radius: 6px;
         padding: 8px 20px;
@@ -25,23 +30,23 @@ _MESSAGE_STYLE = """
         min-width: 80px;
     }
     QPushButton:hover {
-        background-color: #2563eb;
+        background-color: @accent_hover;
     }
 """
 
 _QUESTION_STYLE = """
     QMessageBox {
-        background-color: #1f2937;
+        background-color: @surface;
     }
     QMessageBox QLabel {
-        color: #f3f4f6;
+        color: @text;
         font-size: 14px;
         min-width: 280px;
         background: transparent;
     }
     QPushButton {
-        background-color: #4b5563;
-        color: white;
+        background-color: @surface_raised;
+        color: @text;
         border: none;
         border-radius: 6px;
         padding: 8px 20px;
@@ -49,10 +54,12 @@ _QUESTION_STYLE = """
         min-width: 80px;
     }
     QPushButton:hover {
-        background-color: #6b7280;
+        background-color: @surface_pressed;
+        color: @text;
     }
     QPushButton:focus {
-        background-color: #3777f0;
+        background-color: @accent;
+        color: @on_accent;
     }
 """
 
@@ -62,7 +69,7 @@ def styled_message_box(parent, title, text, icon=QMessageBox.Icon.Information):
     msg.setWindowTitle(title)
     msg.setText(text)
     msg.setIcon(icon)
-    msg.setStyleSheet(_MESSAGE_STYLE)
+    msg.setStyleSheet(qss(_MESSAGE_STYLE))
     return msg
 
 
@@ -73,20 +80,21 @@ def styled_question_box(parent, title, text):
     msg.setIcon(QMessageBox.Icon.Question)
     msg.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
     msg.setDefaultButton(QMessageBox.StandardButton.No)
-    msg.setStyleSheet(_QUESTION_STYLE)
+    msg.setStyleSheet(qss(_QUESTION_STYLE))
     return msg
 
 
 def show_styled_message(parent, title, text, icon=QMessageBox.Icon.Information):
-    """Show a message box with the dark theme."""
+    """Show a message box in the app's theme."""
     return styled_message_box(parent, title, text, icon).exec()
 
 
 def show_styled_question(parent, title, text):
-    """Ask a Yes/No question (No is the default) with the dark theme."""
+    """Ask a Yes/No question (No is the default) in the app's theme."""
     return styled_question_box(parent, title, text).exec()
 
 
 def confirm(parent, title, text):
     """True when the user answers Yes."""
     return show_styled_question(parent, title, text) == QMessageBox.StandardButton.Yes
+

@@ -4,11 +4,14 @@ SQL Generator - turns edits made in the table editor into SQL for the connected 
 The backend only runs what it is sent; every CREATE/ALTER/INSERT/UPDATE/DELETE the app
 executes is written here, in the dialect of the database type (PostgreSQL, MySQL, SQL Server...).
 
-Column specs are the editor's lists: [name, type, "Null"/"Not Null", "PK"/"FK"/"-", fk_table, fk_field, "AUTO"/"-"]
+Column specs are the editor's lists:
+    [name, type, "Null"/"Not Null", "PK"/"FK"/"-", fk_table, fk_field, "AUTO"/"-", default value or None]
+The default value is typed like a cell (no quotes) and written as a literal of the column's type.
 """
 
 import re
 
+from dbmanager.i18n import tr
 from dbmanager.sql.identifiers import quote_identifier
 
 # Types offered by the "Add Field" dialog -> (PostgreSQL/H2, MySQL/MariaDB, SQL Server)
@@ -81,6 +84,31 @@ def is_integer_type(type_name):
     return base_type(type_name) in _INTEGER
 
 
+def is_numeric_type(type_name):
+    return base_type(type_name) in _NUMERIC
+
+
+def looks_like_number(text):
+    """'12', '-3.5', '$1 200.50': what literal() writes as a number for a numeric column"""
+    return bool(_NUMBER.fullmatch((text or "").strip().replace("$", "").replace(" ", "")))
+
+
+def value_problem(text, type_name):
+    """Why a value typed for a column of this type would be refused, to follow the column's name
+    ("holds numbers (int), not "abc""); None when it can go.
+    Only numbers and true/false are checked: text, dates and the rest are left to the database."""
+    stripped = (text or "").strip()
+    if not stripped or stripped.upper() == "NULL":
+        return None
+    if base_type(type_name) in _BOOLEAN or (type_name or "").lower().replace(" ", "") == "tinyint(1)":
+        if stripped.lower() in _TRUE | _FALSE:
+            return None
+        return tr("db.generator.not_true_or_false", type_name=type_name, value=stripped)
+    if base_type(type_name) in _NUMERIC and not looks_like_number(stripped):
+        return tr("db.generator.not_a_number", type_name=type_name, value=stripped)
+    return None
+
+
 def is_exact_decimal_type(type_name):
     """decimal/numeric/money: shown highlighted in the table editor"""
     return base_type(type_name) in _EXACT_DECIMAL
@@ -142,6 +170,24 @@ def literal(value, type_name, db_type):
     return f"'{escaped}'"
 
 
+def column_default(column):
+    """The default value of a column spec, as typed; None when it has none"""
+    value = column[7] if len(column) > 7 else None
+    return None if value is None or str(value) == "" else str(value)
+
+
+def _default_clause(table, column, db_type):
+    """ DEFAULT <value>, or "" - on SQL Server a named constraint, so that it can be dropped by name later"""
+    value = column_default(column)
+    if value is None:
+        return ""
+    clause = f" DEFAULT {literal(value, column[1], db_type)}"
+    if db_type == "SQLSERVER":
+        name = f"DF_{table}_{column[0]}"[:128]
+        clause = f" CONSTRAINT {quote_identifier(name, db_type)}{clause}"
+    return clause
+
+
 def create_table(table, columns, foreign_keys, db_type):
     """foreign_keys: [(fk_column, referenced_table, referenced_column)]"""
     q = lambda name: quote_identifier(name, db_type)
@@ -152,6 +198,7 @@ def create_table(table, columns, foreign_keys, db_type):
         definition = f"{q(name)} {column_type_sql(type_name, db_type, auto)}"
         if nullable == "Not Null" or flag == "PK":
             definition += " NOT NULL"
+        definition += _default_clause(table, column, db_type)
         parts.append(definition)
     primary_keys = [column[0] for column in columns if column[3] == "PK"]
     if primary_keys:
@@ -161,20 +208,83 @@ def create_table(table, columns, foreign_keys, db_type):
     return f"CREATE TABLE {q(table)} (\n    " + ",\n    ".join(parts) + "\n)"
 
 
+def preview(table, rows, db_type):
+    """The first rows of a table - and one more, which tells that there are more. Limited in the SQL itself:
+    the drivers would otherwise bring every row of a big table over just to show the first ones."""
+    if db_type == "SQLSERVER":
+        return f"SELECT TOP ({rows + 1}) * FROM {quote_identifier(table, db_type)}"
+    return f"SELECT * FROM {quote_identifier(table, db_type)} LIMIT {rows + 1}"
+
+
 def drop_table(table, db_type, view=False):
     return f"DROP {'VIEW' if view else 'TABLE'} {quote_identifier(table, db_type)}"
 
 
-def add_column(table, column, db_type):
+def add_column(table, column, db_type, allow_null=False):
+    """ALTER TABLE ... ADD. With a default, the rows already there get it. allow_null adds a NOT NULL column
+    allowing NULL for now: the first step when its values for the existing rows are written afterwards
+    (see set_nullable), since the database refuses a NOT NULL column that the existing rows leave empty."""
     q = lambda name: quote_identifier(name, db_type)
     auto = len(column) > 6 and column[6] == "AUTO"
     definition = f"{q(column[0])} {column_type_sql(column[1], db_type, auto)}"
     if column[3] == "PK":
         definition += " NOT NULL PRIMARY KEY"
-    elif column[2] == "Not Null":
+    elif column[2] == "Not Null" and not allow_null:
         definition += " NOT NULL"
+    definition += _default_clause(table, column, db_type)
+    if db_type == "SQLSERVER" and column_default(column) is not None and "NOT NULL" not in definition:
+        definition += " WITH VALUES"  # as everywhere else: a nullable column's default fills the existing rows
     keyword = "ADD" if db_type == "SQLSERVER" else "ADD COLUMN"
     return f"ALTER TABLE {q(table)} {keyword} {definition}"
+
+
+def mysql_column_definition(sql_type, nullable, details):
+    """A MySQL/MariaDB column as MODIFY COLUMN must state it: everything it does not repeat is lost
+    (the default, AUTO_INCREMENT, ON UPDATE, the comment, a character set of its own)."""
+    parts = [sql_type]
+    if details.get("charset") and details.get("collation"):
+        parts.append(f"CHARACTER SET {details['charset']} COLLATE {details['collation']}")
+    parts.append("NULL" if nullable else "NOT NULL")
+    if details.get("default") is not None:
+        parts.append(f"DEFAULT {details['default']}")
+    parts.extend(details.get("attributes") or [])
+    if details.get("comment"):
+        parts.append("COMMENT '" + details["comment"].replace("\\", "\\\\").replace("'", "''") + "'")
+    return " ".join(parts)
+
+
+def set_nullable(table, column_name, nullable, db_type, sql_type=None, mysql=None):
+    """Allow NULL in a column, or require a value. SQL Server and MySQL restate the column to do so, so they
+    need its declared type (sql_type, with its length) and, on MySQL, the rest of it (mysql, see the schema)."""
+    q = lambda name: quote_identifier(name, db_type)
+    if db_type in ("MYSQL", "MARIADB"):
+        definition = mysql_column_definition(sql_type, nullable, mysql or {})
+        return f"ALTER TABLE {q(table)} MODIFY COLUMN {q(column_name)} {definition}"
+    if db_type == "SQLSERVER":
+        return f"ALTER TABLE {q(table)} ALTER COLUMN {q(column_name)} {sql_type} {'NULL' if nullable else 'NOT NULL'}"
+    return f"ALTER TABLE {q(table)} ALTER COLUMN {q(column_name)} {'DROP' if nullable else 'SET'} NOT NULL"
+
+
+def fill_nulls(table, column_name, value_sql, db_type):
+    """Give the rows that have no value in a column this one (before the column requires one)"""
+    q = lambda name: quote_identifier(name, db_type)
+    return f"UPDATE {q(table)} SET {q(column_name)} = {value_sql} WHERE {q(column_name)} IS NULL"
+
+
+def drop_constraint(table, constraint, db_type):
+    """Drop a constraint or index read from the schema ({"kind", "name", ...}), as each database spells it"""
+    q = lambda name: quote_identifier(name, db_type)
+    kind, name = constraint["kind"], constraint["name"]
+    if db_type in ("MYSQL", "MARIADB"):
+        if kind == "FOREIGN KEY":
+            return f"ALTER TABLE {q(table)} DROP FOREIGN KEY {q(name)}"
+        if kind == "PRIMARY KEY":
+            return f"ALTER TABLE {q(table)} DROP PRIMARY KEY"
+        if kind in ("UNIQUE", "INDEX"):
+            return f"ALTER TABLE {q(table)} DROP INDEX {q(name)}"
+    if db_type == "SQLSERVER" and kind == "INDEX":
+        return f"DROP INDEX {q(name)} ON {q(table)}"
+    return f"ALTER TABLE {q(table)} DROP CONSTRAINT {q(name)}"
 
 
 def rename_column(table, old_name, new_name, db_type):

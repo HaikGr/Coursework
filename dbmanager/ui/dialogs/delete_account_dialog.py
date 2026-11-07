@@ -3,13 +3,16 @@
 from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLineEdit, QVBoxLayout
 
 from dbmanager.api import ApiError
+from dbmanager.i18n import tr, trn
 from dbmanager.ui.common.busy import busy_cursor
 from dbmanager.ui.common.dark_dialog import DIALOG_STYLE, button, label, show_status
 from dbmanager.ui.common.icons import app_icon
+from dbmanager.ui.common.theme import qss
 
+# A theme.qss template
 DANGER_STYLE = """
-    QPushButton { background-color: #dc2626; color: white; font-weight: 600; }
-    QPushButton:hover { background-color: #ef4444; }
+    QPushButton { background-color: @danger; color: @on_danger; font-weight: 600; }
+    QPushButton:hover { background-color: @danger_hover; }
 """
 
 
@@ -21,28 +24,25 @@ class DeleteAccountDialog(QDialog):
         super().__init__(parent)
         self.api = api
         self.deleted = False
-        self.setWindowTitle("Delete Account")
+        self.setWindowTitle(tr("dialogs.delete_account.title"))
         self.setWindowIcon(app_icon())
         self.setMinimumWidth(480)
-        self.setStyleSheet(DIALOG_STYLE)
+        self.setStyleSheet(qss(DIALOG_STYLE))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(8)
 
-        layout.addWidget(label(f"Delete '{api.username}'?", "heading"))
-        saved = (f"your {databases} saved database connection{'s' if databases != 1 else ''}"
-                 if databases else "your saved database connections")
-        layout.addWidget(label(
-            f"This cannot be undone. Going with the account: {saved} and their passwords, every share you "
-            "gave (those users lose access) or received, and premium.\n"
-            "The databases themselves are not touched.", wrap=True))
+        layout.addWidget(label(tr("dialogs.delete_account.heading", username=api.username), "heading"))
+        saved = (trn("dialogs.delete_account.saved_count", databases)
+                 if databases else tr("dialogs.delete_account.saved_all"))
+        layout.addWidget(label(tr("dialogs.delete_account.consequences", saved=saved), wrap=True))
         layout.addSpacing(8)
 
-        layout.addWidget(label("Your password", "caption"))
+        layout.addWidget(label(tr("dialogs.delete_account.password"), "caption"))
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.setPlaceholderText("To confirm it is you")
+        self.password_input.setPlaceholderText(tr("dialogs.delete_account.password_placeholder"))
         self.password_input.returnPressed.connect(self.delete)
         layout.addWidget(self.password_input)
 
@@ -52,9 +52,9 @@ class DeleteAccountDialog(QDialog):
 
         buttons = QHBoxLayout()
         buttons.addStretch()
-        buttons.addWidget(button("Cancel", on_click=self.reject))
-        self.delete_button = button("Delete account", on_click=self.delete)
-        self.delete_button.setStyleSheet(DANGER_STYLE)
+        buttons.addWidget(button(tr("common.cancel"), on_click=self.reject))
+        self.delete_button = button(tr("dialogs.delete_account.delete"), on_click=self.delete)
+        self.delete_button.setStyleSheet(qss(DANGER_STYLE))
         buttons.addWidget(self.delete_button)
         layout.addLayout(buttons)
 
@@ -63,7 +63,7 @@ class DeleteAccountDialog(QDialog):
     def delete(self):
         password = self.password_input.text()
         if not password:
-            show_status(self.status, "Type your password to confirm.", error=True)
+            show_status(self.status, tr("dialogs.delete_account.no_password"), error=True)
             return
         try:
             with busy_cursor():

@@ -1,0 +1,76 @@
+{
+  "query": {
+    "aggregates": {
+      "sum": "the total of the values",
+      "avg": "the average of the values",
+      "count": "how many rows have a value",
+      "count_distinct": "how many different values there are",
+      "min": "the smallest value",
+      "max": "the largest value"
+    },
+    "numbers_only": "{aggregate} works on numbers, and {column} holds {type_name} values",
+    "operators": {
+      "equals": "equals",
+      "not_equal": "does not equal",
+      "greater": "is greater than",
+      "at_least": "is at least",
+      "less": "is less than",
+      "at_most": "is at most",
+      "between": "is between",
+      "one_of": "is one of",
+      "none_of": "is none of",
+      "contains": "contains",
+      "starts_with": "starts with",
+      "ends_with": "ends with",
+      "is_empty": "is empty (NULL)",
+      "is_not_empty": "is not empty",
+      "custom_sql": "custom SQL"
+    },
+    "filter": {
+      "no_operator": "Pick a way to compare",
+      "no_condition": "Type the rest of the condition, for example > 100",
+      "no_values": "Type at least one value - separate several with commas",
+      "both_values": "Type both values",
+      "no_value": "Type a value",
+      "null_value": "To find missing values, choose \"{operator}\"",
+      "not_a_number": "{target} holds numbers, and \"{value}\" is not one"
+    },
+    "describe": {
+      "quoted": "\"{value}\"",
+      "between": "{target} between {low} and {high}",
+      "list": "{target} {operator} {values}",
+      "compare": "{target} {operator} {value}"
+    },
+    "join_kinds": {
+      "inner": "only the rows that match in both tables",
+      "left": "every row of the first table, with or without a match"
+    },
+    "filter_left_out": "The filter on {target} is left out: {problem}",
+    "not_joined": "{table} is not joined to {tables}, so every row of it is paired with every row of the others. Choose the fields to join it on with Join… below - or link it on the diagram."
+  },
+  "table_state": {
+    "more_rows": "{number} more",
+    "type_unknown": "'{field}': its exact type is not known, so its NULL setting cannot be changed here. Read the database again (⟳) and try once more.",
+    "computed": "'{field}' is computed by the database: its NULL setting cannot be changed.",
+    "remedy_default": "give the field a default value (⋮ next to it → Default value…)",
+    "remedy_fill": "choose a value for them (⋮ next to the field → Require a value…)",
+    "rows_not_shown": "'{field}' requires a value (NOT NULL), and '{table}' may have more rows than are shown here. To be sure each gets one, {remedy}.",
+    "row_without_value": "'{field}' requires a value (NOT NULL), and row {rows} has none. Type a value in each, or {remedy}.",
+    "rows_without_value": "'{field}' requires a value (NOT NULL), and rows {rows} have none. Type a value in each, or {remedy}."
+  },
+  "links": {
+    "same_table": "{source} and {target} are in the same table: link a field to a key of another table.",
+    "no_primary_key": "Neither {source} nor {target} is a primary key (PK). A link goes from a field to the primary key of another table - use Join… in the query panel to join on other fields.",
+    "different_kinds": "{parent} holds {parent_type} values and {child} holds {child_type} values: a link needs fields that hold the same kind of values."
+  },
+  "sharing": {
+    "permissions": {
+      "select_role": "read the tables and their rows",
+      "insert_role": "add rows",
+      "update_role": "change rows",
+      "delete_role": "delete rows"
+    },
+    "unknown_user": "user {id}",
+    "unknown_database": "database {id}"
+  }
+}

@@ -7,7 +7,7 @@ from PyQt6.QtCore import QPointF, Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor, QPainter, QPen
 from PyQt6.QtWidgets import QWidget
 
-BACKGROUND_COLOR = "#3B82F6"
+from dbmanager.ui.common.theme import color
 FRAME_INTERVAL_MS = 16
 LINK_DISTANCE = 120
 
@@ -72,7 +72,7 @@ class AnimatedBackground(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(event.rect(), QColor(BACKGROUND_COLOR))
+        painter.fillRect(event.rect(), color("auth_background"))
 
         for star in self.stars:
             star.draw(painter)

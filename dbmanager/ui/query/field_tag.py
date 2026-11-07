@@ -1,165 +1,201 @@
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QMenu, QPushButton
+
+from dbmanager.i18n import tr
+from dbmanager.model.query import AGGREGATES, aggregate_problem
+from dbmanager.ui.common.elided_label import ElidedLabel
+from dbmanager.ui.common.style import MENU_STYLE
+from dbmanager.ui.common.theme import qss
+
+# The tags and chips are made again whenever the language or the theme changes (see SQLQueryBuilder), so they
+# take both as they are when made
+_SMALL_BUTTON = """
+    QPushButton {{
+        background-color: {background};
+        color: {color};
+        border: none;
+        border-radius: 4px;
+        font-size: {size}px;
+        font-weight: 700;
+        padding: 0px;
+    }}
+    QPushButton:hover {{ background-color: {hover}; color: {hover_color}; }}
+"""
+_PILL_COLORS = {  # (background, text, hover background, hover text)
+    "summary": ("@warning", "@on_warning", "@warning_hover", "@on_warning"),
+    "group": ("@success", "@on_success", "@success_hover", "@on_success"),
+    "plain": ("@surface_raised", "@text_secondary", "@surface_pressed", "@text"),
+}
+_SORT_TEXT = {None: "↕", "ASC": "↑", "DESC": "↓"}
+_PILL_NAMES = {"COUNT_DISTINCT": "UNIQUE"}  # COUNT UNIQUE does not fit the pill
 
 
-class SelectedFieldTag(QFrame):
-    """A compact tag widget showing a selected field"""
-    removed = pyqtSignal(object)
-    group_by_toggled = pyqtSignal(object)
-    order_by_toggled = pyqtSignal(object, str)  # tag, direction (ASC/DESC/None)
+def _small_button(text, tooltip, width, colors, size=11):
+    widget = QPushButton(text)
+    widget.setFixedSize(width, 20)
+    widget.setCursor(Qt.CursorShape.PointingHandCursor)
+    widget.setToolTip(tooltip)
+    background, color, hover, hover_color = colors
+    widget.setStyleSheet(qss(_SMALL_BUTTON.format(background=background, color=color, hover=hover,
+                                                  hover_color=hover_color, size=size)))
+    return widget
 
-    def __init__(self, table_name, field_name, parent=None):
+
+def aggregate_menu(parent, label, type_name, current):
+    """Show as it is, or one of the aggregates; each says what it gives back. Those that cannot work on the
+    column's type are disabled, saying why. The chosen key (None: as it is) is the action's data.
+    Made for one showing, so it takes the language and the theme as they are."""
+    menu = QMenu(parent)
+    menu.setStyleSheet(qss(MENU_STYLE))
+    entries = [(None, tr("query.aggregate_menu.as_it_is"))]
+    entries += [(key, f"{name}  -  {meaning}") for key, (name, meaning) in AGGREGATES.items()]
+    for key, text in entries:
+        action = QAction(text, menu)
+        action.setData(key)
+        action.setCheckable(True)
+        action.setChecked(key == current)
+        problem = aggregate_problem(key, label, type_name)
+        if problem:
+            action.setEnabled(False)
+            action.setToolTip(problem)
+        menu.addAction(action)
+    menu.setToolTipsVisible(True)
+    return menu
+
+
+class ColumnTag(QFrame):
+    """One column of the query, in the side panel. The pill on the left says how the column is shown - as it
+    is (—), as a group (GROUP), or summarised (SUM, ...) - and changes it; the arrow sorts by it; × takes it
+    out. Clicking the tag selects it: the toolbar's aggregate buttons act on the selected column."""
+    selected = pyqtSignal(object)  # (table, column)
+    aggregate_chosen = pyqtSignal(object, object)  # (table, column), aggregate key or None
+    sort_clicked = pyqtSignal(object)
+    remove_clicked = pyqtSignal(object)
+
+    def __init__(self, entry, grouped=False, rank=None, is_selected=False, parent=None):
         super().__init__(parent)
-        self.table_name = table_name
-        self.field_name = field_name
-        self.is_grouped = False
-        self.order_direction = None  # None, "ASC", "DESC"
-        self.aggregate = None  # None, "SUM", "AVG", etc.
-
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #1e293b;
-                border-radius: 6px;
-                border: 1px solid #334155;
-            }
-        """)
-        self.setFixedHeight(34)  # More compact
+        self.entry = entry
+        self.key = entry.key
+        self.is_selected = is_selected
+        self.setFixedHeight(34)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(qss(
+            "ColumnTag { background-color: %s; border: 1px solid %s; border-radius: 6px; }"
+            % (("@accent_subtle", "@accent") if is_selected else ("@surface_alt", "@border"))))
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 4, 6, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(6)
 
-        # Field label
-        self.field_text = QLabel(f"{table_name}.<b>{field_name}</b>")
-        self.field_text.setStyleSheet("color: #e2e8f0; font-size: 11px; background: transparent;")
-        layout.addWidget(self.field_text)
-        layout.addStretch()
+        if entry.aggregate:
+            pill_text, colors = _PILL_NAMES.get(entry.aggregate, AGGREGATES[entry.aggregate][0]), "summary"
+            pill_tip = tr("query.column_tag.summary_tip", meaning=AGGREGATES[entry.aggregate][1])
+        elif grouped:
+            pill_text, colors = "GROUP", "group"
+            pill_tip = tr("query.column_tag.group_tip")
+        else:
+            pill_text, colors = "—", "plain"
+            pill_tip = tr("query.column_tag.plain_tip")
+        self.pill = _small_button(pill_text, pill_tip, 52, _PILL_COLORS[colors], size=9)
+        self.pill.clicked.connect(self._open_aggregate_menu)
+        layout.addWidget(self.pill)
 
-        # GROUP BY button
-        self.group_btn = QPushButton("GRP")
-        self.group_btn.setFixedSize(32, 20)
-        self.group_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.group_btn.setToolTip("Toggle GROUP BY")
-        self._update_group_style()
-        self.group_btn.clicked.connect(self.toggle_group_by)
-        layout.addWidget(self.group_btn)
+        type_note = f"  ({entry.type_name})" if entry.type_name else ""
+        self.name_label = ElidedLabel(f"{entry.table}.{entry.column}")
+        self.name_label.setToolTip(tr("query.column_tag.name_tip", column=f"{entry.label()}{type_note}"))
+        self.name_label.setStyleSheet(qss("QLabel { color: @text; font-size: 11px; background: transparent; "
+                                          "border: none; }"))
+        layout.addWidget(self.name_label, stretch=1)
 
-        # ORDER BY button
-        self.order_btn = QPushButton("↕")
-        self.order_btn.setFixedSize(20, 20)
-        self.order_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.order_btn.setToolTip("Toggle ORDER BY (ASC/DESC)")
-        self._update_order_style()
-        self.order_btn.clicked.connect(self.toggle_order_by)
-        layout.addWidget(self.order_btn)
+        sort_text = _SORT_TEXT[entry.sort] + (str(rank) if rank else "")
+        # The theme has no on_purple: white reads on its violet in both themes
+        sort_colors = {None: _PILL_COLORS["plain"], "ASC": ("@info", "@on_info", "@info_hover", "@on_info"),
+                       "DESC": ("@purple", "@on_accent", "@purple_text", "@purple_subtle")}[entry.sort]
+        sort_tip = tr({None: "query.column_tag.sort_none",
+                       "ASC": "query.column_tag.sort_asc",
+                       "DESC": "query.column_tag.sort_desc"}[entry.sort])
+        if rank:
+            sort_tip += "\n" + tr("query.column_tag.sort_rank", rank=rank)
+        self.sort_btn = _small_button(sort_text, sort_tip, 28 if rank else 22, sort_colors)
+        self.sort_btn.clicked.connect(lambda: self.sort_clicked.emit(self.key))
+        layout.addWidget(self.sort_btn)
 
-        # Remove button
-        remove_btn = QPushButton("×")
-        remove_btn.setFixedSize(20, 20)
-        remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        remove_btn.setToolTip("Remove field")
-        remove_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #7f1d1d;
-                color: #fca5a5;
-                border: none;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #991b1b;
-            }
-        """)
-        remove_btn.clicked.connect(lambda: self.removed.emit(self))
+        self.remove_btn = _small_button("×", tr("query.column_tag.remove_tip"), 22,
+                                        ("@danger_subtle", "@danger_text", "@danger", "@on_danger"), 13)
+        self.remove_btn.clicked.connect(lambda: self.remove_clicked.emit(self.key))
+        layout.addWidget(self.remove_btn)
+
+    def _open_aggregate_menu(self):
+        self.selected.emit(self.key)
+        menu = aggregate_menu(self, f"{self.entry.table}.{self.entry.column}", self.entry.type_name,
+                              self.entry.aggregate)
+        chosen = menu.exec(self.pill.mapToGlobal(QPoint(0, self.pill.height())))
+        if chosen is not None:
+            self.aggregate_chosen.emit(self.key, chosen.data())
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.selected.emit(self.key)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+class ListChip(QFrame):
+    """One entry of a list in the panel - a filter, a join - in words, with a small badge before it.
+    Click it to change it; × removes it. color: the theme token of its badge and edge."""
+    edit_clicked = pyqtSignal(int)
+    remove_clicked = pyqtSignal(int)
+
+    def __init__(self, index, badge, badge_tip, text, color, parent=None):
+        super().__init__(parent)
+        self.index = index
+        self.setFixedHeight(30)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setObjectName("chip")
+        self.setStyleSheet(qss(f"QFrame#chip {{ background-color: @surface_alt; border: 1px solid @border; "
+                               f"border-left: 3px solid {color}; border-radius: 6px; }}"
+                               f"QFrame#chip:hover {{ border-color: {color}; }}"))
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 3, 6, 3)
+        layout.setSpacing(6)
+
+        kind = QLabel(badge)
+        kind.setToolTip(badge_tip)
+        kind.setStyleSheet(qss(f"QLabel {{ color: {color}; font-size: 8px; font-weight: 700; "
+                               "background: transparent; border: none; }"))
+        layout.addWidget(kind)
+
+        self.text_label = ElidedLabel(text)
+        self.text_label.setToolTip(tr("query.chip.text_tip", text=text))
+        self.text_label.setStyleSheet(qss("QLabel { color: @text; font-size: 11px; background: transparent; "
+                                          "border: none; }"))
+        layout.addWidget(self.text_label, stretch=1)
+
+        remove_btn = _small_button("×", tr("query.chip.remove_tip"), 22,
+                                   ("@danger_subtle", "@danger_text", "@danger", "@on_danger"), 13)
+        remove_btn.clicked.connect(lambda: self.remove_clicked.emit(self.index))
         layout.addWidget(remove_btn)
 
-    def _update_group_style(self):
-        if self.is_grouped:
-            self.group_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #22c55e;
-                    color: #052e16;
-                    border: none;
-                    border-radius: 3px;
-                    font-size: 9px;
-                    font-weight: 700;
-                }
-                QPushButton:hover { background-color: #16a34a; }
-            """)
-        else:
-            self.group_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #334155;
-                    color: #94a3b8;
-                    border: none;
-                    border-radius: 3px;
-                    font-size: 9px;
-                    font-weight: 600;
-                }
-                QPushButton:hover { background-color: #475569; }
-            """)
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.edit_clicked.emit(self.index)
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
-    def _update_order_style(self):
-        if self.order_direction == "ASC":
-            self.order_btn.setText("↑")
-            self.order_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #f59e0b;
-                    color: #451a03;
-                    border: none;
-                    border-radius: 3px;
-                    font-size: 11px;
-                    font-weight: bold;
-                }
-                QPushButton:hover { background-color: #d97706; }
-            """)
-        elif self.order_direction == "DESC":
-            self.order_btn.setText("↓")
-            self.order_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #ef4444;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                    font-size: 11px;
-                    font-weight: bold;
-                }
-                QPushButton:hover { background-color: #dc2626; }
-            """)
-        else:
-            self.order_btn.setText("↕")
-            self.order_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #334155;
-                    color: #94a3b8;
-                    border: none;
-                    border-radius: 3px;
-                    font-size: 11px;
-                }
-                QPushButton:hover { background-color: #475569; }
-            """)
 
-    def toggle_group_by(self):
-        self.is_grouped = not self.is_grouped
-        self._update_group_style()
-        self.group_by_toggled.emit(self)
+def filter_chip(index, condition, parent=None):
+    """A filter of the query: ROWS (WHERE) or GROUPS (HAVING)"""
+    if condition.aggregate:
+        return ListChip(index, tr("query.chip.groups"), tr("query.chip.groups_tip"), condition.describe(),
+                        "@warning_text", parent)
+    return ListChip(index, tr("query.chip.rows"), tr("query.chip.rows_tip"), condition.describe(),
+                    "@warning_text", parent)
 
-    def toggle_order_by(self):
-        # Cycle: None -> ASC -> DESC -> None
-        if self.order_direction is None:
-            self.order_direction = "ASC"
-        elif self.order_direction == "ASC":
-            self.order_direction = "DESC"
-        else:
-            self.order_direction = None
-        self._update_order_style()
-        self.order_by_toggled.emit(self, self.order_direction)
 
-    def set_aggregate(self, agg_type):
-        """Set aggregate function for this field"""
-        self.aggregate = agg_type
-        if agg_type:
-            self.field_text.setText(f"<span style='color:#fbbf24;'>{agg_type}</span>({self.table_name}.<b>{self.field_name}</b>)")
-        else:
-            self.field_text.setText(f"{self.table_name}.<b>{self.field_name}</b>")
+def join_chip(index, join, parent=None):
+    """A join made for the query only"""
+    tip = tr("query.chip.left_join_tip" if join.kind == "LEFT" else "query.chip.join_tip")
+    return ListChip(index, "LEFT" if join.kind == "LEFT" else "JOIN", tip, join.describe(), "@link_join", parent)

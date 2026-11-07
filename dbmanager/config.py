@@ -2,7 +2,8 @@
 Settings shared across the app.
 
 The server address comes from the DB_MANAGER_API_URL environment variable
-(default http://localhost:8080).
+(default http://localhost:8080). The server keeps accounts and sharing; the user's
+databases are reached from this computer (see dbmanager.db).
 """
 
 import os
@@ -22,3 +23,8 @@ SETTINGS_APPLICATION = "Coursework"
 
 # Rows shown in a table's "Data Records" panel
 TABLE_PREVIEW_ROWS = 200
+
+# Talking to the user's databases directly
+DB_CONNECT_TIMEOUT_SECONDS = 10
+DB_STATEMENT_TIMEOUT_SECONDS = 30
+QUERY_MAX_ROWS = 500   # the most rows one statement returns; the result says when there were more

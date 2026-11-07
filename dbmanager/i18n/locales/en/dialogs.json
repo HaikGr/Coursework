@@ -1,0 +1,90 @@
+{
+  "database": {
+    "new_title": "New Database",
+    "connect": "Connect",
+    "type": "Database Type",
+    "host": "Host",
+    "port": "Port",
+    "name": "Database Name",
+    "username": "Username",
+    "user_placeholder": "Database user",
+    "password": "Password",
+    "password_placeholder": "Database password",
+    "keep_password": "Leave empty to keep the current password",
+    "test": "Test",
+    "test_tip": "Check that this computer can reach the database, without saving anything",
+    "error_title": "Database",
+    "missing": "Please fill in host, database name and username.",
+    "bad_port": "Port must be a number between 1 and 65535.",
+    "no_password": "Please enter the database password.",
+    "connected": "Connected.",
+    "unreachable_title": "Database Not Reachable",
+    "unreachable": "This computer could not connect to the database:\n{error}\n\nSave these settings anyway?"
+  },
+  "field": {
+    "add": "Add Field",
+    "heading": "Add New Field",
+    "name": "Field Name",
+    "name_placeholder": "Enter field name",
+    "type": "Data Type",
+    "default": "Default value",
+    "default_placeholder": "none - optional",
+    "default_tip": "What a row gets when no value is given for this field - the rows already\nin the table too. Typed as it is, without quotes.",
+    "nullable": "Nullable",
+    "auto_increment": "Auto Inc",
+    "primary_key": "Primary Key",
+    "foreign_key": "Foreign Key",
+    "rows_get_default": "The rows already in the table get the default value.",
+    "rows_need_value": "The rows already in the table need a value for a required field: give a default value, or type one in each row before you run.",
+    "rows_need_value_count": {
+      "one": "The {count} row already in the table need a value for a required field: give a default value, or type one in each row before you run.",
+      "other": "The {count} rows already in the table need a value for a required field: give a default value, or type one in each row before you run."
+    },
+    "rows_get_null": "The rows already in the table get no value (NULL).",
+    "no_name": "Enter a field name.",
+    "name_taken": "This table already has a field named '{name}'.",
+    "default_not_number": "The default must be a number for a {type} field."
+  },
+  "table_name": {
+    "title": "Create New Table",
+    "name": "Table Name",
+    "placeholder": "Enter table name...",
+    "create": "Create Table"
+  },
+  "require_value": {
+    "title": "Require a Value",
+    "heading": "Require a value in {column}",
+    "missing": {
+      "one": "{count} of the rows shown has no value. The database will not require one until every row has it - give them this value:",
+      "other": "{count} of the rows shown have no value. The database will not require one until every row has it - give them this value:"
+    },
+    "truncated": "Every row shown has a value, but the table has more rows than are shown. Rows without a value, if there are any, get this one (leave it empty to let the database check, and refuse if it finds one):",
+    "complete": "Every row has a value. New rows will need one too.",
+    "fill_placeholder": "value for the empty rows",
+    "not_needed": "not needed",
+    "fill_note": "Typed as it is, without quotes. Values typed in the rows themselves before you run are kept.",
+    "no_fill": "Type the value the empty rows get.",
+    "not_number": "{type} holds numbers, and \"{value}\" is not one."
+  },
+  "password": {
+    "title": "Database Password",
+    "heading": "Password for '{name}'",
+    "explanation": "This app connects to your database itself. Once it works, the password is saved with your account (encrypted), so you are not asked again.",
+    "caption": "Password of {user}",
+    "missing": "Type the password, or {cancel}."
+  },
+  "delete_account": {
+    "title": "Delete Account",
+    "heading": "Delete '{username}'?",
+    "saved_count": {
+      "one": "your {count} saved database connection",
+      "other": "your {count} saved database connections"
+    },
+    "saved_all": "your saved database connections",
+    "consequences": "This cannot be undone. Going with the account: {saved}, every share you gave (those users lose access, and the logins made for them are removed from your databases) or received, and premium.\nNothing else in your databases is touched.",
+    "password": "Your password",
+    "password_placeholder": "To confirm it is you",
+    "delete": "Delete account",
+    "no_password": "Type your password to confirm."
+  }
+}

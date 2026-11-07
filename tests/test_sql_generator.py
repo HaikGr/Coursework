@@ -18,6 +18,27 @@ class QuoteIdentifierTest(unittest.TestCase):
         self.assertEqual(quote_identifier('say "hi"', "POSTGRESQL"), '"say ""hi"""')
 
 
+class ReservedWordTest(unittest.TestCase):
+    def test_each_database_quotes_its_own_reserved_words(self):
+        self.assertEqual(quote_identifier("read", "MYSQL"), "`read`")
+        self.assertEqual(quote_identifier("condition", "MARIADB"), "`condition`")
+        self.assertEqual(quote_identifier("plan", "SQLSERVER"), "[plan]")
+        self.assertEqual(quote_identifier("file", "SQLSERVER"), "[file]")
+        self.assertEqual(quote_identifier("analyse", "POSTGRESQL"), '"analyse"')
+
+    def test_a_word_reserved_elsewhere_stays_bare(self):
+        self.assertEqual(quote_identifier("public", "POSTGRESQL"), "public")
+        self.assertEqual(quote_identifier("read", "POSTGRESQL"), "read")
+        self.assertEqual(quote_identifier("plan", "MYSQL"), "plan")
+
+
+class PreviewTest(unittest.TestCase):
+    def test_the_preview_is_limited_in_the_sql(self):
+        self.assertEqual(sqlgen.preview("orders", 200, "POSTGRESQL"), "SELECT * FROM orders LIMIT 201")
+        self.assertEqual(sqlgen.preview("orders", 200, "MYSQL"), "SELECT * FROM orders LIMIT 201")
+        self.assertEqual(sqlgen.preview("Order", 200, "SQLSERVER"), "SELECT TOP (201) * FROM [Order]")
+
+
 class LiteralTest(unittest.TestCase):
     def test_numbers_booleans_and_null(self):
         self.assertEqual(sqlgen.literal("42", "int4", "POSTGRESQL"), "42")

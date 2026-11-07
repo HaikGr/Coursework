@@ -1,0 +1,138 @@
+{
+  "builder": {
+    "title": "SQL Query Builder",
+    "subtitle": "Visual query construction",
+    "database": "Database: {name}  ({type})",
+    "no_database": "No database selected - pick one in the sidebar",
+    "unsaved_changes": {
+      "one": "{count} unsaved change - click {run_query} to save them to the database",
+      "other": "{count} unsaved changes - click {run_query} to save them to the database"
+    },
+    "discard_tip": "Throw away every change that has not been run yet",
+    "editor_placeholder": "Pick fields or type SQL here",
+    "join_table": "Join {table}…",
+    "columns": "COLUMNS ({count})",
+    "columns_with_row_count": "COLUMNS ({count})  +  row count",
+    "clear_tip": "Start the query again: no columns, filters or options.\nUnsaved table changes stay - use {discard} to drop them.",
+    "columns_hint": "Click the circle at the end of a field on the diagram to add it here - or right-click the field for more.",
+    "joins": "JOINS ({count})",
+    "add_join": "+ Join",
+    "add_join_tip": "Join two tables on fields of your choice, or keep the rows that match nothing\n(LEFT JOIN) - for this query only, the database is not changed",
+    "joins_hint": "Tables are joined along the links of the diagram. {add_join} joins them on other fields, or keeps rows without a match.",
+    "filters": "FILTERS ({count})",
+    "match_all": "Match all",
+    "match_any": "Match any",
+    "match_tip": "All: a row must pass every filter (AND).\nAny: passing one of them is enough (OR).",
+    "filters_hint": "Right-click a field on the diagram and choose Add filter… to keep only the rows you need.",
+    "run_tip": "Run everything in the editor above ({keys})",
+    "copy": "Copy Query",
+    "copied": "Copied ✓",
+    "no_two_tables": "There are no two tables on the diagram to join.",
+    "nothing_to_run": "There is no query to run yet.",
+    "select_database": "Select a database in the sidebar first.",
+    "not_run_title": "Not Run Yet",
+    "refused": "The database would refuse these changes - nothing was run:\n\n• {problems}",
+    "failed_title": "Query Failed"
+  },
+  "aggregate_menu": {
+    "as_it_is": "Show each value as it is"
+  },
+  "column_tag": {
+    "summary_tip": "Shows {meaning}. Click to change.",
+    "group_tip": "Another column is summarised, so the rows are grouped by this one (GROUP BY).\nClick to summarise this column too.",
+    "plain_tip": "Shown as it is. Click to summarise it: SUM, AVG, COUNT, MIN, MAX…",
+    "name_tip": "{column}\nClick to select it for the toolbar.",
+    "sort_none": "Not sorted. Click: smallest first (ASC)",
+    "sort_asc": "Smallest first (ASC). Click: largest first (DESC)",
+    "sort_desc": "Largest first (DESC). Click: not sorted",
+    "sort_rank": "Sort {rank}: the sort set first decides first",
+    "remove_tip": "Take it out of the query"
+  },
+  "chip": {
+    "text_tip": "{text}\nClick to change it.",
+    "remove_tip": "Remove it",
+    "rows": "ROWS",
+    "rows_tip": "Tests each row (WHERE)",
+    "groups": "GROUPS",
+    "groups_tip": "Tests each group (HAVING)",
+    "join_tip": "Keeps the rows that match in both tables (JOIN)",
+    "left_join_tip": "Keeps every row of the first table, matched or not (LEFT JOIN)"
+  },
+  "dialog": {
+    "apply": "Apply"
+  },
+  "filter": {
+    "add": "Add Filter",
+    "edit_title": "Edit Filter",
+    "heading_rows": "Keep only the rows where…",
+    "heading_groups": "Keep only the groups where…",
+    "each_row": "each row's {column}",
+    "each_group": "{aggregate} of {column} for each group",
+    "and": "and",
+    "sample_list": "Ann, Bob, Zoe",
+    "sample_text": "text",
+    "hint_no_value": "No value needed.",
+    "hint_list": "Separate the values with commas. Type them as they are - no quotes needed.",
+    "hint_value": "Type the value as it is - no quotes needed.",
+    "hint_sql": "Written after the column exactly as typed, for example  > 100 OR {column} IS NULL",
+    "hint_contains": "Finds the text anywhere in the value. Type it as it is - no quotes, no % signs.",
+    "hint_starts": "Type the beginning as it is - no quotes, no % signs.",
+    "hint_ends": "Type the end as it is - no quotes, no % signs.",
+    "remove": "Remove filter"
+  },
+  "join": {
+    "title": "Join Tables",
+    "change_title": "Change Join",
+    "heading": "Join two tables",
+    "note": "For this query only: the database is not changed. To save a link as a foreign key, draw it on the diagram.",
+    "rows_of": "Rows of",
+    "match": "match",
+    "keep": "Keep {rows}",
+    "remove": "Remove join",
+    "join": "Join",
+    "no_other_table": "There is no other table on the diagram to join.",
+    "cannot_compare": "{left} holds {left_type} values and {right} holds {right_type}: the database cannot compare them."
+  },
+  "help": {
+    "window_title": "How to Build a Query",
+    "heading": "How to build a query",
+    "intro": "Everything you pick becomes SQL in the panel on the right.",
+    "columns_title": "Pick columns",
+    "columns_text": "Click the circle at the end of a field on the diagram, or right-click the field and choose <b>Add to query</b>. Fields of several tables are joined along the links between them.",
+    "join_title": "Join tables",
+    "join_text": "Drag a primary key (<b>PK</b>) onto the field of another table that refers to it - or click one, then the other, or right-click the field → <b>Link to</b>. Queries join the tables on the link, and it is saved as a foreign key at the next Run. To join on other fields, or keep the rows without a match (<b>LEFT JOIN</b>), use <b>{add_join}</b> in the query panel: that changes nothing in the database.",
+    "summarize_title": "Summarize",
+    "summarize_text": "Click a column in the query panel, then <b>SUM</b>, <b>AVG</b>, <b>COUNT</b>, <b>COUNT UNIQUE</b>, <b>MIN</b> or <b>MAX</b> in the toolbar (or use the pill on the column). Every column you do not summarize becomes a group - <b>GROUP BY</b> is written for you. <b>Count rows</b> adds how many rows each group has.",
+    "filter_title": "Filter",
+    "filter_text": "Right-click a field and choose <b>Add filter…</b>, pick how to compare and type the value as it is - no quotes. A filter on a summarized column can test each group instead of each row (<b>HAVING</b>). Click a filter in the panel to change it.",
+    "sort_title": "Sort and limit",
+    "sort_text": "The arrow on a column sorts by it: smallest first, largest first, off. <b>Limit</b> keeps the first rows; <b>Distinct</b> shows each different row once.",
+    "run_title": "Run",
+    "run_text": "<b>{run_query}</b> or <b>{keys}</b>. The SQL can be edited by hand before it runs; it is only written over when you change the query on the diagram.",
+    "got_it": "Got it"
+  },
+  "results": {
+    "window_title": "Query Results - {database}",
+    "executed": {
+      "one": "{count} statement executed   ·   {duration} ms",
+      "other": "{count} statements executed   ·   {duration} ms"
+    },
+    "returned": {
+      "one": "{count} row(s) returned",
+      "other": "{count} row(s) returned"
+    },
+    "truncated": "{returned} (more rows exist, only the first ones are shown)",
+    "affected": {
+      "one": "{count} row(s) affected",
+      "other": "{count} row(s) affected"
+    },
+    "done": "done",
+    "earlier": {
+      "one": "... {count} earlier statement(s)",
+      "other": "... {count} earlier statement(s)"
+    },
+    "value": "⊟  Value",
+    "value_tip": "Show the whole value of the selected cell under the table (or double-click it)",
+    "row": "row {number}"
+  }
+}

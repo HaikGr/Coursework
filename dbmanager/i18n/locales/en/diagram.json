@@ -1,0 +1,53 @@
+{
+  "card": {
+    "no_primary_keys": "No primary keys",
+    "no_foreign_keys": "No foreign keys",
+    "no_other_fields": "No additional fields",
+    "fields": {
+      "one": "{count} field",
+      "other": "{count} fields"
+    },
+    "drag_to_move": "Drag here to move"
+  },
+  "card_menu": {
+    "open_table": "Open table",
+    "drop_table": "Drop table…"
+  },
+  "field_menu": {
+    "add_to_query": "Add to query",
+    "remove_from_query": "Remove from query",
+    "summarize": "Summarize",
+    "sort": "Sort",
+    "add_filter": "Add filter…",
+    "change_filter": "Change filter: {filter}",
+    "remove_filters": "Remove its filters",
+    "saved_link": "Linked to {target} by a foreign key",
+    "remove_link": "Remove link to {target}",
+    "remove_link_tip": "Drawn but not saved yet: the FOREIGN KEY it would add goes too",
+    "link_to": "Link to",
+    "primary_key": "primary key",
+    "field": "field",
+    "delete_field": "Delete field…"
+  },
+  "sort": {
+    "none": "Not sorted",
+    "ascending": "Smallest first (A → Z, 1 → 9)",
+    "descending": "Largest first (Z → A, 9 → 1)"
+  },
+  "field_row": {
+    "tip": "{field}\nDrag onto a field of another table to link them (or click one, then the other).\nRight-click: query, links, filters",
+    "add_to_query": "Add {field} to the query",
+    "take_out_of_query": "Take {field} out of the query",
+    "linked_key": "A key, linked to another table",
+    "primary_key": "Primary key",
+    "foreign_key": "Foreign key",
+    "filtered": "Filtered: {filters}"
+  },
+  "link": {
+    "click_other": "Now click the field of another table that {source} links to - Esc gives up.",
+    "owner_only": "Only the owner of this database can link its tables (a link adds a foreign key). To join tables in a query, use Join… in the query panel.",
+    "already_linked": "{child} and {parent} are linked already.",
+    "points_elsewhere": "{child} points at {parent} already. Remove that link first (right-click the field).",
+    "linked": "Linked: {child} → {parent}. Queries join the two tables on it, and it is saved as a foreign key when you click {run_query}."
+  }
+}
